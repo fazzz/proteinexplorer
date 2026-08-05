@@ -50,14 +50,14 @@ def test_contact_density_reasonable(tiny_pdb: Path):
     assert density >= 0
 
 
-def test_secondary_structure_raises_clean_error_without_dssp(tiny_pdb: Path, monkeypatch):
+def test_secondary_structure_falls_back_to_geometric_without_dssp(tiny_pdb: Path, monkeypatch):
     structure, _ = _load(tiny_pdb)
     monkeypatch.setattr("shutil.which", lambda name: None)
-    try:
-        desc.secondary_structure_composition(structure, tiny_pdb)
-        assert False, "expected DSSPNotAvailableError"
-    except desc.DSSPNotAvailableError as exc:
-        assert "DSSP" in str(exc)
+    from proteinexplorer import secondary as sec
+
+    residues, method = sec.secondary_structure(structure, pdb_path=tiny_pdb, method="auto")
+    assert method == "geometric"
+    assert len(residues) == 4
 
 
 def test_compute_descriptors_end_to_end(tiny_pdb: Path):
@@ -66,5 +66,8 @@ def test_compute_descriptors_end_to_end(tiny_pdb: Path):
     assert result.n_atoms == 24
     assert result.n_ligands == 1
     assert result.n_waters == 2
-    assert result.secondary_structure is None
-    assert result.secondary_structure_error is not None
+    # DSSP isn't installed in the test environment -> auto falls back to
+    # the geometric classifier, so a composition is still produced.
+    assert result.secondary_structure is not None
+    assert result.secondary_structure_method == "geometric"
+    assert result.secondary_structure_error is None

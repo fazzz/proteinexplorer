@@ -70,7 +70,7 @@ def test_descriptor_command(project_dir: Path, tiny_pdb: Path):
     assert result.exit_code == 0
     assert "molecular weight" in result.output
     assert "SASA" in result.output
-    assert "secondary structure: unavailable" in result.output
+    assert "secondary structure (geometric)" in result.output
 
 
 def test_info_unknown_id(project_dir: Path, tiny_pdb: Path):

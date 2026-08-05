@@ -1,16 +1,13 @@
 """Structure descriptors (spec section "Descriptor").
 
-Everything here works with Biopython + numpy only, no external binaries,
-except secondary_structure_composition() which needs a DSSP executable
-(mkdssp/dssp) on PATH and raises a clear error when it is missing --
-same pattern as ChemExplorer/BioExplorer's optional external-tool wrappers.
+Everything here works with Biopython + numpy only, no external binaries.
+Secondary structure composition delegates to secondary.py, which prefers
+an external DSSP binary and falls back to a dependency-free phi/psi-based
+classifier when DSSP isn't installed.
 """
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +50,7 @@ class StructureDescriptors:
     hydrophobic_ratio: float | None
     disulfide_count: int
     secondary_structure: dict[str, float] | None
+    secondary_structure_method: str | None
     secondary_structure_error: str | None
 
 
@@ -162,39 +160,13 @@ class DSSPNotAvailableError(RuntimeError):
     pass
 
 
-def secondary_structure_composition(structure: Structure, pdb_path: str | Path) -> dict[str, float]:
-    """Secondary structure composition (fraction of residues in each DSSP
-    class) via an external `mkdssp`/`dssp` binary. Requires the structure's
-    source file on disk (DSSP reads PDB/mmCIF directly)."""
-    binary = shutil.which("mkdssp") or shutil.which("dssp")
-    if binary is None:
-        raise DSSPNotAvailableError(
-            "DSSP executable (mkdssp/dssp) not found on PATH. Install DSSP "
-            "(e.g. via conda: `conda install -c salilab dssp`) to compute "
-            "secondary structure composition."
-        )
-
-    from Bio.PDB.DSSP import DSSP
-
-    model = next(iter(structure))
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dssp = DSSP(model, str(pdb_path), dssp=binary)
-        codes = [dssp[key][2] for key in dssp.keys()]
-
-    if not codes:
-        return {}
-    total = len(codes)
-    counts: dict[str, int] = {}
-    for code in codes:
-        counts[code] = counts.get(code, 0) + 1
-    return {code: count / total for code, count in counts.items()}
-
-
 def compute_descriptors(
     structure: Structure,
     pdb_path: str | Path,
     category_totals: dict[str, int],
 ) -> StructureDescriptors:
+    from proteinexplorer import secondary as sec
+
     model = next(iter(structure))
     n_atoms = sum(1 for _ in model.get_atoms())
     n_residues = sum(1 for _ in model.get_residues())
@@ -206,13 +178,13 @@ def compute_descriptors(
         sasa = None
 
     ss_composition: dict[str, float] | None = None
+    ss_method: str | None = None
     ss_error: str | None = None
     try:
-        ss_composition = secondary_structure_composition(structure, pdb_path)
-    except DSSPNotAvailableError as exc:
-        ss_error = str(exc)
+        residues, ss_method = sec.secondary_structure(structure, pdb_path=pdb_path, method="auto")
+        ss_composition = sec.composition(residues)
     except Exception as exc:  # pragma: no cover - defensive
-        ss_error = f"DSSP failed: {exc}"
+        ss_error = f"secondary structure assignment failed: {exc}"
 
     return StructureDescriptors(
         molecular_weight=molecular_weight(structure),
@@ -227,5 +199,6 @@ def compute_descriptors(
         hydrophobic_ratio=hydrophobic_ratio(structure),
         disulfide_count=disulfide_count(structure),
         secondary_structure=ss_composition,
+        secondary_structure_method=ss_method,
         secondary_structure_error=ss_error,
     )

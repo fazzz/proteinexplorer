@@ -15,8 +15,8 @@ Implemented so far:
 - `prot info`: detailed per-structure summary
 - `prot descriptor`: molecular weight, atom/residue/chain/ligand/water
   counts, SASA, radius of gyration, CA-CA contact density, hydrophobic
-  ratio, disulfide bond count, secondary structure composition (needs
-  external `mkdssp`/`dssp`, degrades gracefully if absent)
+  ratio, disulfide bond count, secondary structure composition (via
+  `secondary.py`, DSSP if available else the geometric fallback)
 - **Common selection language** (`selection.py`): `protein`/`nucleic`/
   `water`/`ion`/`ligand`, `backbone`/`sidechain`, `chain X`, `resid a:b`,
   `resname X`, `atom X`, `within N <sel>`, boolean `and`/`or`/`not` with
@@ -25,17 +25,19 @@ Implemented so far:
   (phi/psi/omega + side chain chi1-4), `rmsd` (Kabsch-fit or raw), `coords`
   (centroid/COM/bounding box/radius of gyration/plane fit/principal
   axes/moment of inertia), `distmatrix` (pairwise centroid distance matrix)
-- `prot contact`: `hbond` (heavy-atom N/O...N/O, no hydrogens needed),
-  `saltbridge` (Arg/Lys/His vs Asp/Glu charged-group distance), `hydrophobic`
-  (sidechain carbon-carbon), `pipi` (aromatic ring stacking, with
-  parallel/t-shaped/intermediate classification via ring-plane angle),
-  `cationpi` (Arg/Lys vs aromatic ring), `disulfide` (Cys SG-SG),
-  `map` (residue-residue contact map, CA-CA or min-heavy-atom mode),
-  `network` (all interaction types combined into one edge list)
+- `prot contact`: `hbond`, `saltbridge`, `hydrophobic`, `pipi`, `cationpi`,
+  `disulfide`, `map` (residue-residue contact map), `network` (all
+  interaction types combined into one edge list)
+- `prot secondary`: per-residue secondary structure + composition, via
+  `secondary.py`. Two methods: `dssp` (external mkdssp/dssp binary, full
+  8-class H/G/I/E/B/T/S/- codes) and `geometric` (dependency-free phi/psi
+  Ramachandran-region classifier with short-run smoothing, 3-class H/E/C).
+  `--method auto` (default) prefers DSSP and falls back to geometric when
+  the binary isn't installed.
 
-Remaining spec commands (secondary/pocket/mutate/model/predict/compare/
-cluster/annotate/map/plot/view/replay) are not yet implemented.
-`geometry`'s convex hull and residue-residue angle matrix were left out as
+Remaining spec commands (pocket/mutate/model/predict/compare/cluster/
+annotate/map/plot/view/replay) are not yet implemented. `geometry`'s
+convex hull and residue-residue angle matrix were left out as
 under-specified; happy to add them on request.
 
 ## Quickstart
@@ -50,9 +52,9 @@ uv run prot geometry distance my_protein "chain A and resid 10 and atom CA" "cha
 uv run prot geometry backbone-torsions my_protein --chain A --resid 25
 uv run prot geometry coords my_protein "chain A and backbone"
 uv run prot contact hbond my_protein
-uv run prot contact saltbridge my_protein
 uv run prot contact map my_protein --mode heavy --cutoff 5
-uv run prot contact network my_protein
+uv run prot secondary my_protein
+uv run prot secondary my_protein --method dssp   # requires mkdssp/dssp on PATH
 uv run prot export my_protein out.cif
 ```
 

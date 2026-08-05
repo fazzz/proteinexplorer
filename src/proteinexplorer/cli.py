@@ -151,7 +151,7 @@ def descriptor_cmd(structure_id: str) -> None:
     click.echo(f"  disulfide bonds: {d.disulfide_count}")
     if d.secondary_structure is not None:
         composition = ", ".join(f"{k}={v:.2f}" for k, v in sorted(d.secondary_structure.items()))
-        click.echo(f"  secondary structure: {composition}")
+        click.echo(f"  secondary structure ({d.secondary_structure_method}): {composition}")
     elif d.secondary_structure_error:
         click.echo(f"  secondary structure: unavailable ({d.secondary_structure_error})")
 
@@ -531,6 +531,50 @@ def contact_network_cmd(structure_id: str) -> None:
     click.echo(f"{len(edges)} edge(s):")
     for e in edges:
         click.echo(f"  {e.residue_a} -[{e.kind}]- {e.residue_b}   {e.value:.2f} A")
+
+
+@cli.command("secondary")
+@click.argument("structure_id")
+@click.option("--method", type=click.Choice(["auto", "dssp", "geometric"]), default="auto", show_default=True,
+              help="auto: DSSP if available, else the built-in phi/psi classifier.")
+@click.option("--chain", "chain_id", default=None, help="Restrict output to one chain.")
+def secondary_cmd(structure_id: str, method: str, chain_id: str | None) -> None:
+    """Per-residue secondary structure assignment and composition."""
+    from proteinexplorer import secondary as sec
+
+    try:
+        record, structure = _load(structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    path = proj.structure_path(proj.find_project_root("."), structure_id)
+    try:
+        residues, used_method = sec.secondary_structure(structure, pdb_path=path, method=method)
+    except (sec.DSSPNotAvailableError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if chain_id:
+        residues = [r for r in residues if r.chain_id == chain_id]
+        if not residues:
+            raise click.ClickException(f"No residues found for chain {chain_id!r}")
+
+    click.echo(f"{record.id}  ({record.name})   method={used_method}")
+
+    current_chain = None
+    codes: list[str] = []
+    for r in residues:
+        if r.chain_id != current_chain:
+            if codes:
+                click.echo(f"  {current_chain}: {''.join(codes)}")
+            current_chain = r.chain_id
+            codes = []
+        codes.append(r.code if r.code != "-" else "C")
+    if codes:
+        click.echo(f"  {current_chain}: {''.join(codes)}")
+
+    comp = sec.composition(residues)
+    comp_str = ", ".join(f"{k}={v:.2f}" for k, v in sorted(comp.items()))
+    click.echo(f"  composition: {comp_str}")
 
 
 def main() -> None:
