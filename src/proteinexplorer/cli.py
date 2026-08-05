@@ -383,6 +383,156 @@ def geometry_distmatrix_cmd(structure_id: str, selections: tuple[str, ...]) -> N
         click.echo(f"  [{i + 1}] {expr}")
 
 
+@cli.group("contact")
+def contact_group() -> None:
+    """Hydrogen bonds, salt bridges, hydrophobic/pi contacts, disulfides,
+    contact maps, and residue interaction networks."""
+
+
+def _contact_load(structure_id: str):
+    try:
+        return _load(structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@contact_group.command("hbond")
+@click.argument("structure_id")
+@click.option("--cutoff", default=3.5, show_default=True, help="Heavy-atom N/O...N/O distance cutoff (A).")
+def contact_hbond_cmd(structure_id: str, cutoff: float) -> None:
+    """Heavy-atom hydrogen bond candidates (no hydrogens required)."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    bonds = ct.find_hydrogen_bonds(structure, cutoff=cutoff)
+    if not bonds:
+        click.echo("No hydrogen bond candidates found.")
+        return
+    for b in bonds:
+        click.echo(f"{b.donor_residue}:{b.donor_atom}  --  {b.acceptor_residue}:{b.acceptor_atom}   {b.distance:.2f} A")
+
+
+@contact_group.command("saltbridge")
+@click.argument("structure_id")
+@click.option("--cutoff", default=4.0, show_default=True, help="Charged-group centroid distance cutoff (A).")
+def contact_saltbridge_cmd(structure_id: str, cutoff: float) -> None:
+    """Salt bridges between basic (Arg/Lys/His) and acidic (Asp/Glu) residues."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    bridges = ct.find_salt_bridges(structure, cutoff=cutoff)
+    if not bridges:
+        click.echo("No salt bridges found.")
+        return
+    for b in bridges:
+        click.echo(f"{b.basic_residue}  --  {b.acidic_residue}   {b.distance:.2f} A")
+
+
+@contact_group.command("hydrophobic")
+@click.argument("structure_id")
+@click.option("--cutoff", default=4.5, show_default=True, help="Sidechain carbon-carbon distance cutoff (A).")
+def contact_hydrophobic_cmd(structure_id: str, cutoff: float) -> None:
+    """Hydrophobic sidechain-sidechain contacts."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    contacts = ct.find_hydrophobic_contacts(structure, cutoff=cutoff)
+    if not contacts:
+        click.echo("No hydrophobic contacts found.")
+        return
+    for c in contacts:
+        click.echo(f"{c.residue_a}  --  {c.residue_b}   {c.min_distance:.2f} A")
+
+
+@contact_group.command("pipi")
+@click.argument("structure_id")
+@click.option("--cutoff", default=7.0, show_default=True, help="Aromatic ring centroid distance cutoff (A).")
+def contact_pipi_cmd(structure_id: str, cutoff: float) -> None:
+    """Pi-pi stacking between aromatic residues (Phe/Tyr/Trp/His)."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    interactions = ct.find_pipi_interactions(structure, cutoff=cutoff)
+    if not interactions:
+        click.echo("No pi-pi interactions found.")
+        return
+    for p in interactions:
+        click.echo(
+            f"{p.residue_a}  --  {p.residue_b}   {p.centroid_distance:.2f} A   "
+            f"angle={p.plane_angle:.1f} deg   ({p.stack_type})"
+        )
+
+
+@contact_group.command("cationpi")
+@click.argument("structure_id")
+@click.option("--cutoff", default=6.0, show_default=True, help="Cation-ring-centroid distance cutoff (A).")
+def contact_cationpi_cmd(structure_id: str, cutoff: float) -> None:
+    """Cation-pi interactions between Arg/Lys and aromatic residues."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    interactions = ct.find_cationpi_interactions(structure, cutoff=cutoff)
+    if not interactions:
+        click.echo("No cation-pi interactions found.")
+        return
+    for c in interactions:
+        click.echo(f"{c.cation_residue}  --  {c.aromatic_residue}   {c.distance:.2f} A")
+
+
+@contact_group.command("disulfide")
+@click.argument("structure_id")
+@click.option("--cutoff", default=2.5, show_default=True, help="SG-SG distance cutoff (A).")
+def contact_disulfide_cmd(structure_id: str, cutoff: float) -> None:
+    """Disulfide (Cys-Cys) bonds."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    bonds = ct.find_disulfide_bonds(structure, cutoff=cutoff)
+    if not bonds:
+        click.echo("No disulfide bonds found.")
+        return
+    for b in bonds:
+        click.echo(f"{b.residue_a}  --  {b.residue_b}   {b.distance:.2f} A")
+
+
+@contact_group.command("map")
+@click.argument("structure_id")
+@click.option("--selection", default=None, help="Restrict to a selection (default: everything but water).")
+@click.option("--mode", type=click.Choice(["ca", "heavy"]), default="ca", show_default=True,
+              help="ca: CA-CA distance. heavy: minimum heavy-atom distance.")
+@click.option("--cutoff", default=8.0, show_default=True, help="Contact distance cutoff (A).")
+def contact_map_cmd(structure_id: str, selection: str | None, mode: str, cutoff: float) -> None:
+    """Residue-residue contact map."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    atoms = _select_or_fail(structure, selection) if selection else None
+    cm = ct.contact_map(structure, atoms=atoms, cutoff=cutoff, mode=mode)
+
+    n = len(cm.labels)
+    click.echo(f"{n} residues, {int(cm.matrix.sum() / 2)} contact(s) (mode={mode}, cutoff={cutoff} A)")
+    for i in range(n):
+        contacts_i = [cm.labels[j] for j in range(n) if cm.matrix[i, j]]
+        if contacts_i:
+            click.echo(f"  {cm.labels[i]}: {', '.join(contacts_i)}")
+
+
+@contact_group.command("network")
+@click.argument("structure_id")
+def contact_network_cmd(structure_id: str) -> None:
+    """All interaction types combined into one residue interaction network edge list."""
+    from proteinexplorer import contact as ct
+
+    _, structure = _contact_load(structure_id)
+    edges = ct.interaction_network(structure)
+    if not edges:
+        click.echo("No interactions found.")
+        return
+    click.echo(f"{len(edges)} edge(s):")
+    for e in edges:
+        click.echo(f"  {e.residue_a} -[{e.kind}]- {e.residue_b}   {e.value:.2f} A")
+
+
 def main() -> None:
     cli()
 
