@@ -1,0 +1,30 @@
+[project]
+name = "proteinexplorer"
+version = "0.1.0"
+description = "CLI-based structural bioinformatics workbench for static protein 3D structure analysis and modeling"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "biopython>=1.83",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+cluster = ["scipy>=1.11", "scikit-learn>=1.4"]
+viz = ["matplotlib>=3.8"]
+
+[project.scripts]
+prot = "proteinexplorer.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
