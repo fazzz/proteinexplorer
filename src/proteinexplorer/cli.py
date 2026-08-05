@@ -8,6 +8,8 @@ on top of this same project/io layer.
 from __future__ import annotations
 
 import sys
+import tempfile
+from pathlib import Path
 
 import click
 
@@ -627,6 +629,151 @@ def pocket_detect_cmd(
         )
         click.echo(f"      centroid={p.centroid.round(2).tolist()}")
         click.echo(f"      residues: {', '.join(p.residues) if p.residues else '(none within lining distance)'}")
+
+
+@cli.command("mutate")
+@click.argument("structure_id")
+@click.option("--chain", "chain_id", required=True, help="Chain ID of the residue to mutate.")
+@click.option("--resid", required=True, type=int, help="Residue sequence number to mutate.")
+@click.option("--to", "target", required=True, help="Target amino acid (1- or 3-letter code).")
+@click.option("--method", type=click.Choice(["auto", "scwrl4", "cb_only"]), default="auto", show_default=True,
+              help="auto: Scwrl4 if installed, else the built-in backbone+C-beta fallback.")
+@click.option("--name", default=None, help="Name for the new mutant structure (default: derived automatically).")
+def mutate_cmd(structure_id: str, chain_id: str, resid: int, target: str, method: str, name: str | None) -> None:
+    """Point-mutate one residue, saving the result as a new structure in
+    the project (the original is left untouched)."""
+    from proteinexplorer import mutate as mut
+
+    try:
+        record, structure = _load(structure_id)
+        root = proj.find_project_root(".")
+        src_path = proj.structure_path(root, structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        result = mut.mutate_residue(structure, src_path, chain_id, resid, target, method=method)
+    except (mut.MutationError, mut.Scwrl4NotAvailableError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    mutant_name = name or (
+        f"{record.name}_{chain_id}{resid}{result.original_resname}{result.new_resname}"
+    )
+    ext = ".pdb" if record.format == "pdb" else ".cif"
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / f"{mutant_name}{ext}"
+    pio.save_structure(structure, tmp_path, fmt=record.format)
+    try:
+        new_record = proj.import_structure(root, tmp_path, name=mutant_name, fmt=record.format)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+
+    click.echo(f"{result.chain_id}/{result.original_resname}{result.resseq} -> {result.new_resname}")
+    click.echo(f"  method: {result.method}")
+    click.echo(f"  atoms placed: {', '.join(result.atoms_placed)}")
+    click.echo(f"  {result.note}")
+    click.echo(f"Saved as '{new_record.name}' ({new_record.id})")
+
+
+@cli.group("model")
+def model_group() -> None:
+    """Missing-residue detection, a crude loop filler, and homology
+    modeling (external MODELLER wrapper)."""
+
+
+@model_group.command("gaps")
+@click.argument("structure_id")
+def model_gaps_cmd(structure_id: str) -> None:
+    """Detect numbering gaps (missing residues) per chain."""
+    from proteinexplorer import model as mdl
+
+    _, structure = _contact_load(structure_id)
+    gaps = mdl.find_gaps(structure)
+    if not gaps:
+        click.echo("No gaps detected.")
+        return
+    for g in gaps:
+        click.echo(f"{g.chain_id}: {g.prev_resseq} .. {g.next_resseq}  ({g.length} residue(s) missing)")
+
+
+@model_group.command("loop")
+@click.argument("structure_id")
+@click.option("--chain", "chain_id", required=True, help="Chain ID.")
+@click.option("--start", required=True, type=int, help="First missing residue number.")
+@click.option("--end", required=True, type=int, help="Last missing residue number.")
+@click.option("--sequence", default=None,
+              help="1-letter sequence for the gap (default: poly-ALA placeholder).")
+@click.option("--name", default=None, help="Name for the new filled structure.")
+def model_loop_cmd(
+    structure_id: str, chain_id: str, start: int, end: int, sequence: str | None, name: str | None
+) -> None:
+    """Fill a gap with a crude placeholder backbone trace (dependency-free;
+    NOT a real loop model -- see `prot model loop --help` caveats in the
+    docs). Saves the result as a new structure in the project."""
+    from proteinexplorer import model as mdl
+
+    try:
+        record, structure = _load(structure_id)
+        root = proj.find_project_root(".")
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        result = mdl.fill_loop_linear(structure, chain_id, start, end, sequence=sequence)
+    except mdl.MutationError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    mutant_name = name or f"{record.name}_loop{chain_id}{start}-{end}"
+    ext = ".pdb" if record.format == "pdb" else ".cif"
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / f"{mutant_name}{ext}"
+    pio.save_structure(structure, tmp_path, fmt=record.format)
+    try:
+        new_record = proj.import_structure(root, tmp_path, name=mutant_name, fmt=record.format)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+
+    click.echo(f"Filled {result.chain_id}/{result.start_resseq}-{result.end_resseq}: {', '.join(result.residues_added)}")
+    click.echo(f"  {result.note}")
+    click.echo(f"Saved as '{new_record.name}' ({new_record.id})")
+
+
+@model_group.command("homology")
+@click.option("--alignment", "alignment_path", required=True, type=click.Path(exists=True),
+              help="PIR-format alignment file containing target and template sequences.")
+@click.option("--template", "template_codes", required=True, multiple=True,
+              help="Template code(s) as named in the alignment (repeatable).")
+@click.option("--target", "target_code", required=True, help="Target sequence code as named in the alignment.")
+@click.option("--template-dir", required=True, type=click.Path(exists=True),
+              help="Directory containing the template structure file(s).")
+@click.option("--output-dir", required=True, type=click.Path(), help="Directory to write the model(s) to.")
+@click.option("--n-models", default=1, show_default=True, help="Number of models to generate.")
+def model_homology_cmd(
+    alignment_path: str, template_codes: tuple[str, ...], target_code: str,
+    template_dir: str, output_dir: str, n_models: int,
+) -> None:
+    """Homology modeling via an external MODELLER installation (license
+    required from https://salilab.org/modeller/). No dependency-free
+    fallback exists for this command."""
+    from proteinexplorer import model as mdl
+
+    try:
+        outputs = mdl.homology_model(
+            alignment_pir_path=alignment_path,
+            template_codes=list(template_codes),
+            target_code=target_code,
+            template_search_dir=template_dir,
+            output_dir=output_dir,
+            n_models=n_models,
+        )
+    except mdl.ModellerNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"{len(outputs)} model(s) written:")
+    for path in outputs:
+        click.echo(f"  {path}")
 
 
 def main() -> None:

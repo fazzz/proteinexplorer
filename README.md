@@ -12,34 +12,41 @@ Implemented so far:
   classification, backbone-atom detection (`models.py`, `io.py`)
 - Project management under `.proteinexplorer/` (`project.py`)
 - CLI skeleton: `prot import` / `prot export` / `prot status`
-- `prot info`: detailed per-structure summary
-- `prot descriptor`: molecular weight, atom/residue/chain/ligand/water
-  counts, SASA, radius of gyration, CA-CA contact density, hydrophobic
-  ratio, disulfide bond count, secondary structure composition
-- **Common selection language** (`selection.py`): `protein`/`nucleic`/
-  `water`/`ion`/`ligand`, `backbone`/`sidechain`, `chain X`, `resid a:b`,
-  `resname X`, `atom X`, `within N <sel>`, boolean `and`/`or`/`not` with
-  parentheses -- shared by every analysis command
-- `prot geometry`: `distance`, `angle`, `dihedral`, `backbone-torsions`
-  (phi/psi/omega + side chain chi1-4), `rmsd`, `coords` (centroid/COM/
-  bounding box/radius of gyration/plane fit/principal axes/moment of
-  inertia), `distmatrix`
+- `prot info` / `prot descriptor`
+- **Common selection language** (`selection.py`): shared by every
+  analysis command
+- `prot geometry`: `distance`, `angle`, `dihedral`, `backbone-torsions`,
+  `rmsd`, `coords`, `distmatrix`
 - `prot contact`: `hbond`, `saltbridge`, `hydrophobic`, `pipi`, `cationpi`,
   `disulfide`, `map`, `network`
-- `prot secondary`: per-residue secondary structure + composition
-  (`dssp` external binary, or a dependency-free `geometric` phi/psi
-  fallback; `auto` picks whichever is available)
+- `prot secondary`: `dssp` (external binary) or a dependency-free
+  `geometric` fallback
 - `prot pocket detect`: dependency-free grid/ray-casting cavity detector
-  (LIGSITE-style approximation -- no fpocket/P2Rank available in this
-  environment). Reports volume, a rough surface-area estimate, lining
-  residues, hydrophobic fraction, and a simple **heuristic** (not a
-  trained model) druggability score. Large structures need `--selection`
-  to keep the search grid a manageable size; the command errors out with
-  a clear message (and the point count) instead of hanging.
+  (LIGSITE-style approximation)
+- `prot mutate`: point mutation -> new structure in the project. `scwrl4`
+  (external, full rotamer optimization) or `cb_only` (dependency-free:
+  backbone kept, idealized virtual C-beta only, honestly reports it does
+  not build the rest of the side chain)
+- `prot model`:
+  - `gaps` -- detect numbering discontinuities (missing residues), no
+    external tool needed
+  - `loop` -- crude dependency-free gap filler: linear CA interpolation
+    with idealized local backbone geometry between the flanking anchor
+    residues. No clash checking or energy minimization -- a placeholder
+    trace to refine further, not a real loop model. Saves the result as
+    a new structure in the project
+  - `homology` -- wraps an external MODELLER installation (license
+    required from https://salilab.org/modeller/). No dependency-free
+    fallback exists for homology modeling, so this errors out clearly
+    when the `modeller` package isn't installed
 
-Remaining spec commands (mutate/model/predict/compare/cluster/annotate/
-map/plot/view/replay) are not yet implemented. `geometry`'s convex hull
-and residue-residue angle matrix were left out as under-specified.
+Sidechain rebuilding/repacking is intentionally not a separate command --
+use `prot mutate --to <same residue>` for that (it's the same operation as
+a point mutation with an unchanged target identity).
+
+Remaining spec commands (predict/compare/cluster/annotate/map/plot/view/
+replay) are not yet implemented. `geometry`'s convex hull and
+residue-residue angle matrix were left out as under-specified.
 
 ## Quickstart
 
@@ -53,6 +60,9 @@ uv run prot geometry distance my_protein "chain A and resid 10 and atom CA" "cha
 uv run prot contact hbond my_protein
 uv run prot secondary my_protein
 uv run prot pocket detect my_protein --selection "chain A and resid 40:80"
+uv run prot mutate my_protein --chain A --resid 50 --to VAL
+uv run prot model gaps my_protein
+uv run prot model loop my_protein --chain A --start 41 --end 43 --sequence GLY
 uv run prot export my_protein out.cif
 ```
 
