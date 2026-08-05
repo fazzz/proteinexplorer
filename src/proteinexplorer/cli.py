@@ -577,6 +577,58 @@ def secondary_cmd(structure_id: str, method: str, chain_id: str | None) -> None:
     click.echo(f"  composition: {comp_str}")
 
 
+@cli.group("pocket")
+def pocket_group() -> None:
+    """Cavity/binding-pocket detection (grid-based, LIGSITE-style
+    approximation -- see `prot pocket detect --help` for caveats)."""
+
+
+@pocket_group.command("detect")
+@click.argument("structure_id")
+@click.option("--selection", default=None,
+              help="Restrict the search region to a selection (default: the whole structure). "
+                   "Strongly recommended for large structures to keep the grid small.")
+@click.option("--spacing", default=1.5, show_default=True, help="Grid spacing (A).")
+@click.option("--padding", default=3.0, show_default=True, help="Padding around the search region (A).")
+@click.option("--max-ray-length", default=6.0, show_default=True, help="Max ray-cast distance per direction (A).")
+@click.option("--min-enclosed-axes", default=5, show_default=True, help="Axes (of 7) that must be enclosed.")
+@click.option("--min-pocket-points", default=3, show_default=True, help="Minimum grid points to report a pocket.")
+def pocket_detect_cmd(
+    structure_id: str, selection: str | None, spacing: float, padding: float,
+    max_ray_length: float, min_enclosed_axes: int, min_pocket_points: int,
+) -> None:
+    """Detect cavities via a dependency-free grid/ray-casting method
+    (LIGSITE-style approximation -- not fpocket; see module docs).
+    Reports volume, a rough surface-area estimate, lining residues,
+    hydrophobicity, and a simple (non-ML) druggability heuristic."""
+    from proteinexplorer import pocket as pk
+
+    _, structure = _contact_load(structure_id)
+    atoms = _select_or_fail(structure, selection) if selection else None
+
+    try:
+        pockets = pk.find_pockets(
+            structure, atoms=atoms, spacing=spacing, padding=padding,
+            max_ray_length=max_ray_length, min_enclosed_axes=min_enclosed_axes,
+            min_pocket_points=min_pocket_points,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not pockets:
+        click.echo("No pockets found with the current parameters.")
+        return
+
+    click.echo(f"{len(pockets)} pocket(s) found:")
+    for p in pockets:
+        click.echo(
+            f"  #{p.id}  volume={p.volume:.0f} A^3  surface~={p.surface_area:.0f} A^2  "
+            f"hydrophobicity={p.hydrophobicity:.2f}  druggability~={p.druggability_score:.2f}"
+        )
+        click.echo(f"      centroid={p.centroid.round(2).tolist()}")
+        click.echo(f"      residues: {', '.join(p.residues) if p.residues else '(none within lining distance)'}")
+
+
 def main() -> None:
     cli()
 

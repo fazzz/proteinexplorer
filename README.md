@@ -15,30 +15,31 @@ Implemented so far:
 - `prot info`: detailed per-structure summary
 - `prot descriptor`: molecular weight, atom/residue/chain/ligand/water
   counts, SASA, radius of gyration, CA-CA contact density, hydrophobic
-  ratio, disulfide bond count, secondary structure composition (via
-  `secondary.py`, DSSP if available else the geometric fallback)
+  ratio, disulfide bond count, secondary structure composition
 - **Common selection language** (`selection.py`): `protein`/`nucleic`/
   `water`/`ion`/`ligand`, `backbone`/`sidechain`, `chain X`, `resid a:b`,
   `resname X`, `atom X`, `within N <sel>`, boolean `and`/`or`/`not` with
   parentheses -- shared by every analysis command
 - `prot geometry`: `distance`, `angle`, `dihedral`, `backbone-torsions`
-  (phi/psi/omega + side chain chi1-4), `rmsd` (Kabsch-fit or raw), `coords`
-  (centroid/COM/bounding box/radius of gyration/plane fit/principal
-  axes/moment of inertia), `distmatrix` (pairwise centroid distance matrix)
+  (phi/psi/omega + side chain chi1-4), `rmsd`, `coords` (centroid/COM/
+  bounding box/radius of gyration/plane fit/principal axes/moment of
+  inertia), `distmatrix`
 - `prot contact`: `hbond`, `saltbridge`, `hydrophobic`, `pipi`, `cationpi`,
-  `disulfide`, `map` (residue-residue contact map), `network` (all
-  interaction types combined into one edge list)
-- `prot secondary`: per-residue secondary structure + composition, via
-  `secondary.py`. Two methods: `dssp` (external mkdssp/dssp binary, full
-  8-class H/G/I/E/B/T/S/- codes) and `geometric` (dependency-free phi/psi
-  Ramachandran-region classifier with short-run smoothing, 3-class H/E/C).
-  `--method auto` (default) prefers DSSP and falls back to geometric when
-  the binary isn't installed.
+  `disulfide`, `map`, `network`
+- `prot secondary`: per-residue secondary structure + composition
+  (`dssp` external binary, or a dependency-free `geometric` phi/psi
+  fallback; `auto` picks whichever is available)
+- `prot pocket detect`: dependency-free grid/ray-casting cavity detector
+  (LIGSITE-style approximation -- no fpocket/P2Rank available in this
+  environment). Reports volume, a rough surface-area estimate, lining
+  residues, hydrophobic fraction, and a simple **heuristic** (not a
+  trained model) druggability score. Large structures need `--selection`
+  to keep the search grid a manageable size; the command errors out with
+  a clear message (and the point count) instead of hanging.
 
-Remaining spec commands (pocket/mutate/model/predict/compare/cluster/
-annotate/map/plot/view/replay) are not yet implemented. `geometry`'s
-convex hull and residue-residue angle matrix were left out as
-under-specified; happy to add them on request.
+Remaining spec commands (mutate/model/predict/compare/cluster/annotate/
+map/plot/view/replay) are not yet implemented. `geometry`'s convex hull
+and residue-residue angle matrix were left out as under-specified.
 
 ## Quickstart
 
@@ -49,12 +50,9 @@ uv run prot status
 uv run prot info my_protein
 uv run prot descriptor my_protein
 uv run prot geometry distance my_protein "chain A and resid 10 and atom CA" "chain A and resid 50 and atom CA"
-uv run prot geometry backbone-torsions my_protein --chain A --resid 25
-uv run prot geometry coords my_protein "chain A and backbone"
 uv run prot contact hbond my_protein
-uv run prot contact map my_protein --mode heavy --cutoff 5
 uv run prot secondary my_protein
-uv run prot secondary my_protein --method dssp   # requires mkdssp/dssp on PATH
+uv run prot pocket detect my_protein --selection "chain A and resid 40:80"
 uv run prot export my_protein out.cif
 ```
 
