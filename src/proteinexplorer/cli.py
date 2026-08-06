@@ -1028,6 +1028,64 @@ def cluster_models_cmd(
     _cluster_report(result)
 
 
+@cli.group("plot")
+def plot_group() -> None:
+    """Static plots (matplotlib, needs `pip install -e ".[viz]"`):
+    Ramachandran, contact map, secondary structure diagram."""
+
+
+@plot_group.command("ramachandran")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--chain", "chain_id", default=None, help="Restrict to one chain.")
+def plot_ramachandran_cmd(structure_id: str, output: str, chain_id: str | None) -> None:
+    """Phi/psi scatter plot with the geometric classifier's alpha/beta
+    regions shaded for reference."""
+    from proteinexplorer import plot as plt_mod
+
+    _, structure = _contact_load(structure_id)
+    try:
+        path = plt_mod.ramachandran_plot(structure, output, chain_id=chain_id)
+    except plt_mod.PlotExtraNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Saved {path}")
+
+
+@plot_group.command("contact-map")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--selection", default=None, help="Restrict to a selection (default: everything but water).")
+@click.option("--mode", type=click.Choice(["ca", "heavy"]), default="ca", show_default=True)
+@click.option("--cutoff", default=8.0, show_default=True)
+def plot_contact_map_cmd(structure_id: str, output: str, selection: str | None, mode: str, cutoff: float) -> None:
+    """Contact map heatmap."""
+    from proteinexplorer import plot as plt_mod
+
+    _, structure = _contact_load(structure_id)
+    atoms = _select_or_fail(structure, selection) if selection else None
+    try:
+        path = plt_mod.contact_map_plot(structure, output, atoms=atoms, mode=mode, cutoff=cutoff)
+    except plt_mod.PlotExtraNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Saved {path}")
+
+
+@plot_group.command("secondary")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--method", type=click.Choice(["auto", "dssp", "geometric"]), default="auto", show_default=True)
+def plot_secondary_cmd(structure_id: str, output: str, method: str) -> None:
+    """Linear secondary structure diagram, one track per chain."""
+    from proteinexplorer import plot as plt_mod
+
+    _, structure = _contact_load(structure_id)
+    try:
+        path = plt_mod.secondary_structure_plot(structure, output, method=method)
+    except plt_mod.PlotExtraNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Saved {path}")
+
+
 def main() -> None:
     cli()
 

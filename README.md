@@ -26,23 +26,22 @@ Implemented so far:
   `scwrl4` (external) or `cb_only` (dependency-free fallback)
 - `prot model`: `gaps`, `loop` (crude dependency-free gap filler),
   `homology` (external MODELLER wrapper, no fallback)
-- `prot compare`: `rmsd`, `tmscore` (external TMalign/US-align, or a
-  fixed-correspondence fallback), `secondary`, `contact`, `pocket`,
+- `prot compare`: `rmsd`, `tmscore`, `secondary`, `contact`, `pocket`,
   `ligand`
-- `prot cluster`: ensemble clustering by pairwise RMSD, same two-tier
-  pattern as ChemExplorer/BioExplorer's clustering commands:
-  - `ensemble` -- cluster several structures already in the project
-  - `models` -- cluster the MODEL records within one multi-model file
-    (e.g. an NMR ensemble)
-  - `--method greedy` (default): pure-Python CD-HIT-style incremental
-    clustering, no extra dependency
-  - `--method hierarchical`: scipy-based agglomerative clustering,
-    needs `pip install -e ".[cluster]"`
-  - Both report a medoid as each cluster's representative
+- `prot cluster`: `ensemble` (compare several project structures) /
+  `models` (compare MODEL records within one multi-model file), each
+  via `--method greedy` (dependency-free) or `hierarchical` (needs
+  `[cluster]` extra)
+- `prot plot` (matplotlib, needs `pip install -e ".[viz]"`):
+  - `ramachandran` -- phi/psi scatter with the geometric SS classifier's
+    alpha/beta regions shaded for reference
+  - `contact-map` -- heatmap from `prot contact map`'s underlying data
+  - `secondary` -- linear per-chain secondary structure diagram
+    (helix/strand/coil track)
 
-Remaining spec commands (predict/annotate/map/plot/view/replay) are not
-yet implemented. `geometry`'s convex hull and residue-residue angle
-matrix were left out as under-specified.
+Remaining spec commands (predict/annotate/map/view/replay) are not yet
+implemented. `geometry`'s convex hull and residue-residue angle matrix
+were left out as under-specified.
 
 ## Quickstart
 
@@ -50,17 +49,9 @@ matrix were left out as under-specified.
 uv sync
 uv run prot import structure.pdb --name my_protein
 uv run prot status
-uv run prot mutate my_protein --chain A --resid 50 --to VAL
-uv run prot compare rmsd my_protein my_protein_A50XXXVAL
-uv run prot cluster ensemble my_protein my_protein_A50XXXVAL --threshold 2.0
-uv run prot export my_protein out.cif
-```
-
-For an NMR-style multi-model file:
-
-```bash
-uv run prot import ensemble.pdb --name ensemble
-uv run prot cluster models ensemble --threshold 2.0
+uv run prot plot ramachandran my_protein rama.png
+uv run prot plot contact-map my_protein contacts.png --mode heavy --cutoff 6
+uv run prot plot secondary my_protein ss.png
 ```
 
 Each project is tracked under a `.proteinexplorer/` directory created
@@ -72,6 +63,6 @@ and BioExplorer's `.bioexplorer/` layout. Every CLI invocation is logged to
 
 ```bash
 uv run pytest -q
-# hierarchical clustering tests need scipy:
-uv run pip install -e ".[cluster]" && uv run pytest -q
+# hierarchical clustering and plotting need extras:
+uv run pip install -e ".[cluster,viz]" && uv run pytest -q
 ```
