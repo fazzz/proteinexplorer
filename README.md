@@ -24,33 +24,25 @@ Implemented so far:
 - `prot pocket detect`: dependency-free grid/ray-casting cavity detector
 - `prot mutate`: point mutation -> new structure in the project.
   `scwrl4` (external) or `cb_only` (dependency-free fallback)
-- `prot model`: `gaps` (missing-residue detection), `loop` (crude
-  dependency-free gap filler), `homology` (external MODELLER wrapper,
-  no fallback)
-- `prot compare`:
-  - `rmsd` -- over CA atoms common to both structures (matched by chain
-    ID + residue number)
-  - `tmscore` -- external TMalign/US-align if installed (real structural
-    alignment), otherwise a fixed-correspondence fallback using the
-    standard TM-score distance formula over the common CA pairs. The
-    fallback score is explicitly **not** numerically comparable to real
-    TM-align output (different normalization, no alignment search)
-  - `secondary` -- Q3-style secondary structure similarity (collapsed to
-    H/E/C) over common residues
-  - `contact` -- Jaccard similarity between two contact maps
-  - `pocket` -- Jaccard similarity between two pockets' lining residues
-    (default: each structure's largest pocket)
-  - `ligand` -- shared ligand resnames, and RMSD for any ligand present
-    as one matching-atom-name instance in each structure
+- `prot model`: `gaps`, `loop` (crude dependency-free gap filler),
+  `homology` (external MODELLER wrapper, no fallback)
+- `prot compare`: `rmsd`, `tmscore` (external TMalign/US-align, or a
+  fixed-correspondence fallback), `secondary`, `contact`, `pocket`,
+  `ligand`
+- `prot cluster`: ensemble clustering by pairwise RMSD, same two-tier
+  pattern as ChemExplorer/BioExplorer's clustering commands:
+  - `ensemble` -- cluster several structures already in the project
+  - `models` -- cluster the MODEL records within one multi-model file
+    (e.g. an NMR ensemble)
+  - `--method greedy` (default): pure-Python CD-HIT-style incremental
+    clustering, no extra dependency
+  - `--method hierarchical`: scipy-based agglomerative clustering,
+    needs `pip install -e ".[cluster]"`
+  - Both report a medoid as each cluster's representative
 
-  All `compare` residue-correspondence commands assume matching by
-  (chain ID, residue number) -- the right assumption for two states of
-  "the same" numbered structure (e.g. a mutant vs. its parent), not for
-  true homologs with different numbering.
-
-Remaining spec commands (predict/cluster/annotate/map/plot/view/replay)
-are not yet implemented. `geometry`'s convex hull and residue-residue
-angle matrix were left out as under-specified.
+Remaining spec commands (predict/annotate/map/plot/view/replay) are not
+yet implemented. `geometry`'s convex hull and residue-residue angle
+matrix were left out as under-specified.
 
 ## Quickstart
 
@@ -60,9 +52,15 @@ uv run prot import structure.pdb --name my_protein
 uv run prot status
 uv run prot mutate my_protein --chain A --resid 50 --to VAL
 uv run prot compare rmsd my_protein my_protein_A50XXXVAL
-uv run prot compare tmscore my_protein my_protein_A50XXXVAL
-uv run prot compare pocket my_protein my_protein_A50XXXVAL --selection "chain A and resid 40:80"
+uv run prot cluster ensemble my_protein my_protein_A50XXXVAL --threshold 2.0
 uv run prot export my_protein out.cif
+```
+
+For an NMR-style multi-model file:
+
+```bash
+uv run prot import ensemble.pdb --name ensemble
+uv run prot cluster models ensemble --threshold 2.0
 ```
 
 Each project is tracked under a `.proteinexplorer/` directory created
@@ -74,4 +72,6 @@ and BioExplorer's `.bioexplorer/` layout. Every CLI invocation is logged to
 
 ```bash
 uv run pytest -q
+# hierarchical clustering tests need scipy:
+uv run pip install -e ".[cluster]" && uv run pytest -q
 ```

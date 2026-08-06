@@ -919,6 +919,115 @@ def compare_ligand_cmd(structure_id_a: str, structure_id_b: str, no_fit: bool) -
         click.echo(f"  {name} RMSD: {value:.3f} A")
 
 
+@cli.group("cluster")
+def cluster_group() -> None:
+    """Ensemble clustering by pairwise RMSD -- either several structures
+    already in the project, or several MODEL records within one
+    multi-model file (e.g. an NMR ensemble)."""
+
+
+def _cluster_report(result, matrix_note: str = "") -> None:
+    click.echo(f"{len(result.clusters)} cluster(s) (method={result.method})")
+    for c in result.clusters:
+        others = [m for m in c.member_labels if m != c.representative_label]
+        others_str = f" + {', '.join(others)}" if others else ""
+        click.echo(f"  #{c.id}: representative={c.representative_label}{others_str}")
+
+
+@cluster_group.command("ensemble")
+@click.argument("structure_ids", nargs=-1, required=True)
+@click.option("--selection", default="protein and atom CA", show_default=True,
+              help="Selection applied to every structure (must match atom count across all of them).")
+@click.option("--method", type=click.Choice(["greedy", "hierarchical"]), default="greedy", show_default=True)
+@click.option("--threshold", default=2.0, show_default=True, help="RMSD threshold (A) for --method greedy.")
+@click.option("--n-clusters", default=None, type=int, help="Target cluster count for --method hierarchical.")
+@click.option("--distance-threshold", default=None, type=float,
+              help="RMSD cutoff (A) for --method hierarchical (alternative to --n-clusters).")
+@click.option("--no-fit", is_flag=True, help="Skip superposition; use raw coordinate RMSD.")
+def cluster_ensemble_cmd(
+    structure_ids: tuple[str, ...], selection: str, method: str, threshold: float,
+    n_clusters: int | None, distance_threshold: float | None, no_fit: bool,
+) -> None:
+    """Cluster several structures already in the project by pairwise RMSD."""
+    from proteinexplorer import cluster as clu
+
+    if len(structure_ids) < 2:
+        raise click.ClickException("Provide at least 2 structure IDs")
+
+    atom_groups = []
+    for sid in structure_ids:
+        _, structure = _contact_load(sid)
+        atom_groups.append(_select_or_fail(structure, selection))
+
+    try:
+        matrix = clu.pairwise_rmsd_matrix(atom_groups, fit=not no_fit)
+        if method == "greedy":
+            result = clu.greedy(list(structure_ids), matrix, threshold=threshold)
+        else:
+            result = clu.hierarchical(
+                list(structure_ids), matrix, n_clusters=n_clusters, distance_threshold=distance_threshold
+            )
+    except (clu.ClusterError, clu.ClusterExtraNotAvailableError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    _cluster_report(result)
+
+
+@cluster_group.command("models")
+@click.argument("structure_id")
+@click.option("--selection", default="protein and atom CA", show_default=True)
+@click.option("--method", type=click.Choice(["greedy", "hierarchical"]), default="greedy", show_default=True)
+@click.option("--threshold", default=2.0, show_default=True, help="RMSD threshold (A) for --method greedy.")
+@click.option("--n-clusters", default=None, type=int, help="Target cluster count for --method hierarchical.")
+@click.option("--distance-threshold", default=None, type=float)
+@click.option("--no-fit", is_flag=True)
+def cluster_models_cmd(
+    structure_id: str, selection: str, method: str, threshold: float,
+    n_clusters: int | None, distance_threshold: float | None, no_fit: bool,
+) -> None:
+    """Cluster the MODEL records within one multi-model structure (e.g. an
+    NMR ensemble) by pairwise RMSD."""
+    from proteinexplorer import cluster as clu
+    from proteinexplorer import selection as sel
+    import copy
+
+    try:
+        record, full_structure = _load(structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    n_models = len(full_structure)
+    if n_models < 2:
+        raise click.ClickException(
+            f"{structure_id} has only 1 model. Use `prot cluster ensemble` to "
+            f"compare multiple imported structures instead."
+        )
+
+    atom_groups = []
+    labels = []
+    for model in full_structure:
+        model_copy = copy.deepcopy(model)
+        model_copy.detach_parent()
+        single = full_structure.__class__(full_structure.id)
+        single.add(model_copy)
+        atoms = sel.select(single, selection)
+        if not atoms:
+            raise click.ClickException(f"Selection {selection!r} matched no atoms in model {model.id}")
+        atom_groups.append(atoms)
+        labels.append(f"model_{model.id}")
+
+    try:
+        matrix = clu.pairwise_rmsd_matrix(atom_groups, fit=not no_fit)
+        if method == "greedy":
+            result = clu.greedy(labels, matrix, threshold=threshold)
+        else:
+            result = clu.hierarchical(labels, matrix, n_clusters=n_clusters, distance_threshold=distance_threshold)
+    except (clu.ClusterError, clu.ClusterExtraNotAvailableError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    _cluster_report(result)
+
+
 def main() -> None:
     cli()
 
