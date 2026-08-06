@@ -776,6 +776,149 @@ def model_homology_cmd(
         click.echo(f"  {path}")
 
 
+@cli.group("compare")
+def compare_group() -> None:
+    """Compare two structures already in the project: RMSD, TM-score,
+    secondary structure similarity, contact similarity, pocket overlap,
+    and ligand comparison."""
+
+
+def _compare_load(structure_id_a: str, structure_id_b: str):
+    try:
+        root = proj.find_project_root(".")
+        record_a = proj.get_record(root, structure_id_a)
+        record_b = proj.get_record(root, structure_id_b)
+        path_a = proj.structure_path(root, structure_id_a)
+        path_b = proj.structure_path(root, structure_id_b)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+    structure_a = pio.load_structure(path_a, structure_id=record_a.id, fmt=record_a.format)
+    structure_b = pio.load_structure(path_b, structure_id=record_b.id, fmt=record_b.format)
+    return (record_a, structure_a, path_a), (record_b, structure_b, path_b)
+
+
+@compare_group.command("rmsd")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+@click.option("--no-fit", is_flag=True, help="Skip superposition; compute raw coordinate RMSD.")
+def compare_rmsd_cmd(structure_id_a: str, structure_id_b: str, no_fit: bool) -> None:
+    """RMSD over CA atoms common to both structures (matched by chain ID + residue number)."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, _), (_, structure_b, _) = _compare_load(structure_id_a, structure_id_b)
+    try:
+        value, n = cmp.rmsd(structure_a, structure_b, fit=not no_fit)
+    except cmp.CompareError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"RMSD ({'no-fit' if no_fit else 'fit'}, {n} common CA atoms): {value:.3f} A")
+
+
+@compare_group.command("tmscore")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+@click.option("--method", type=click.Choice(["auto", "tmalign", "fallback"]), default="auto", show_default=True)
+def compare_tmscore_cmd(structure_id_a: str, structure_id_b: str, method: str) -> None:
+    """TM-score. Uses external TMalign/US-align if installed (real
+    structural alignment); otherwise a fixed-correspondence fallback that
+    is NOT numerically comparable to real TM-align output (see notes)."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, path_a), (_, structure_b, path_b) = _compare_load(structure_id_a, structure_id_b)
+    try:
+        result = cmp.tm_score(structure_a, structure_b, structure_a_path=path_a, structure_b_path=path_b, method=method)
+    except cmp.CompareError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"TM-score: {result.score:.3f}  (method={result.method}, n_residues={result.n_residues})")
+    click.echo(f"  {result.note}")
+
+
+@compare_group.command("secondary")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+def compare_secondary_cmd(structure_id_a: str, structure_id_b: str) -> None:
+    """Secondary structure similarity (Q3-style, collapsed to H/E/C) over
+    residues common to both structures."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, _), (_, structure_b, _) = _compare_load(structure_id_a, structure_id_b)
+    try:
+        score, n = cmp.secondary_structure_similarity(structure_a, structure_b)
+    except cmp.CompareError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Secondary structure similarity: {score:.2f}  ({n} common residues)")
+
+
+@compare_group.command("contact")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+@click.option("--mode", type=click.Choice(["ca", "heavy"]), default="ca", show_default=True)
+@click.option("--cutoff", default=8.0, show_default=True)
+def compare_contact_cmd(structure_id_a: str, structure_id_b: str, mode: str, cutoff: float) -> None:
+    """Jaccard similarity between the two structures' contact maps
+    (restricted to residues present in both)."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, _), (_, structure_b, _) = _compare_load(structure_id_a, structure_id_b)
+    try:
+        jaccard, shared, union = cmp.contact_similarity(structure_a, structure_b, mode=mode, cutoff=cutoff)
+    except cmp.CompareError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Contact similarity (Jaccard): {jaccard:.2f}  ({shared}/{union} contacts shared)")
+
+
+@compare_group.command("pocket")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+@click.option("--pocket-a", default=1, show_default=True, help="Pocket # in structure A (1 = largest).")
+@click.option("--pocket-b", default=1, show_default=True, help="Pocket # in structure B (1 = largest).")
+@click.option("--selection", default=None, help="Restrict the pocket search region in both structures.")
+@click.option("--spacing", default=1.5, show_default=True, help="Grid spacing (A), passed to pocket detection.")
+@click.option("--padding", default=3.0, show_default=True, help="Padding around the search region (A).")
+@click.option("--min-pocket-points", default=3, show_default=True, help="Minimum grid points to count as a pocket.")
+def compare_pocket_cmd(
+    structure_id_a: str, structure_id_b: str, pocket_a: int, pocket_b: int,
+    selection: str | None, spacing: float, padding: float, min_pocket_points: int,
+) -> None:
+    """Jaccard similarity between two pockets' lining residues."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, _), (_, structure_b, _) = _compare_load(structure_id_a, structure_id_b)
+    atoms_a = _select_or_fail(structure_a, selection) if selection else None
+    atoms_b = _select_or_fail(structure_b, selection) if selection else None
+    try:
+        jaccard, res_a, res_b = cmp.pocket_overlap(
+            structure_a, structure_b, pocket_index_a=pocket_a, pocket_index_b=pocket_b,
+            atoms_a=atoms_a, atoms_b=atoms_b, spacing=spacing, padding=padding,
+            min_pocket_points=min_pocket_points,
+        )
+    except cmp.CompareError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Pocket overlap (Jaccard): {jaccard:.2f}")
+    click.echo(f"  A pocket #{pocket_a}: {', '.join(res_a)}")
+    click.echo(f"  B pocket #{pocket_b}: {', '.join(res_b)}")
+
+
+@compare_group.command("ligand")
+@click.argument("structure_id_a")
+@click.argument("structure_id_b")
+@click.option("--no-fit", is_flag=True, help="Skip superposition for ligand RMSD; use raw coordinates.")
+def compare_ligand_cmd(structure_id_a: str, structure_id_b: str, no_fit: bool) -> None:
+    """Compare bound ligands: which resnames are shared, and RMSD for any
+    shared ligand present as a single matching-atom instance in each."""
+    from proteinexplorer import compare as cmp
+
+    (_, structure_a, _), (_, structure_b, _) = _compare_load(structure_id_a, structure_id_b)
+    result = cmp.ligand_comparison(structure_a, structure_b, fit=not no_fit)
+
+    click.echo(f"Common ligands: {', '.join(result.common_resnames) or '(none)'}")
+    if result.only_in_a:
+        click.echo(f"  only in A: {', '.join(result.only_in_a)}")
+    if result.only_in_b:
+        click.echo(f"  only in B: {', '.join(result.only_in_b)}")
+    for name, value in result.rmsd_by_resname.items():
+        click.echo(f"  {name} RMSD: {value:.3f} A")
+
+
 def main() -> None:
     cli()
 

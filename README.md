@@ -22,31 +22,35 @@ Implemented so far:
 - `prot secondary`: `dssp` (external binary) or a dependency-free
   `geometric` fallback
 - `prot pocket detect`: dependency-free grid/ray-casting cavity detector
-  (LIGSITE-style approximation)
-- `prot mutate`: point mutation -> new structure in the project. `scwrl4`
-  (external, full rotamer optimization) or `cb_only` (dependency-free:
-  backbone kept, idealized virtual C-beta only, honestly reports it does
-  not build the rest of the side chain)
-- `prot model`:
-  - `gaps` -- detect numbering discontinuities (missing residues), no
-    external tool needed
-  - `loop` -- crude dependency-free gap filler: linear CA interpolation
-    with idealized local backbone geometry between the flanking anchor
-    residues. No clash checking or energy minimization -- a placeholder
-    trace to refine further, not a real loop model. Saves the result as
-    a new structure in the project
-  - `homology` -- wraps an external MODELLER installation (license
-    required from https://salilab.org/modeller/). No dependency-free
-    fallback exists for homology modeling, so this errors out clearly
-    when the `modeller` package isn't installed
+- `prot mutate`: point mutation -> new structure in the project.
+  `scwrl4` (external) or `cb_only` (dependency-free fallback)
+- `prot model`: `gaps` (missing-residue detection), `loop` (crude
+  dependency-free gap filler), `homology` (external MODELLER wrapper,
+  no fallback)
+- `prot compare`:
+  - `rmsd` -- over CA atoms common to both structures (matched by chain
+    ID + residue number)
+  - `tmscore` -- external TMalign/US-align if installed (real structural
+    alignment), otherwise a fixed-correspondence fallback using the
+    standard TM-score distance formula over the common CA pairs. The
+    fallback score is explicitly **not** numerically comparable to real
+    TM-align output (different normalization, no alignment search)
+  - `secondary` -- Q3-style secondary structure similarity (collapsed to
+    H/E/C) over common residues
+  - `contact` -- Jaccard similarity between two contact maps
+  - `pocket` -- Jaccard similarity between two pockets' lining residues
+    (default: each structure's largest pocket)
+  - `ligand` -- shared ligand resnames, and RMSD for any ligand present
+    as one matching-atom-name instance in each structure
 
-Sidechain rebuilding/repacking is intentionally not a separate command --
-use `prot mutate --to <same residue>` for that (it's the same operation as
-a point mutation with an unchanged target identity).
+  All `compare` residue-correspondence commands assume matching by
+  (chain ID, residue number) -- the right assumption for two states of
+  "the same" numbered structure (e.g. a mutant vs. its parent), not for
+  true homologs with different numbering.
 
-Remaining spec commands (predict/compare/cluster/annotate/map/plot/view/
-replay) are not yet implemented. `geometry`'s convex hull and
-residue-residue angle matrix were left out as under-specified.
+Remaining spec commands (predict/cluster/annotate/map/plot/view/replay)
+are not yet implemented. `geometry`'s convex hull and residue-residue
+angle matrix were left out as under-specified.
 
 ## Quickstart
 
@@ -54,15 +58,10 @@ residue-residue angle matrix were left out as under-specified.
 uv sync
 uv run prot import structure.pdb --name my_protein
 uv run prot status
-uv run prot info my_protein
-uv run prot descriptor my_protein
-uv run prot geometry distance my_protein "chain A and resid 10 and atom CA" "chain A and resid 50 and atom CA"
-uv run prot contact hbond my_protein
-uv run prot secondary my_protein
-uv run prot pocket detect my_protein --selection "chain A and resid 40:80"
 uv run prot mutate my_protein --chain A --resid 50 --to VAL
-uv run prot model gaps my_protein
-uv run prot model loop my_protein --chain A --start 41 --end 43 --sequence GLY
+uv run prot compare rmsd my_protein my_protein_A50XXXVAL
+uv run prot compare tmscore my_protein my_protein_A50XXXVAL
+uv run prot compare pocket my_protein my_protein_A50XXXVAL --selection "chain A and resid 40:80"
 uv run prot export my_protein out.cif
 ```
 
