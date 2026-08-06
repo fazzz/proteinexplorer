@@ -28,18 +28,18 @@ Implemented so far:
   `homology` (external MODELLER wrapper, no fallback)
 - `prot compare`: `rmsd`, `tmscore`, `secondary`, `contact`, `pocket`,
   `ligand`
-- `prot cluster`: `ensemble` (compare several project structures) /
-  `models` (compare MODEL records within one multi-model file), each
-  via `--method greedy` (dependency-free) or `hierarchical` (needs
-  `[cluster]` extra)
-- `prot plot` (matplotlib, needs `pip install -e ".[viz]"`):
-  - `ramachandran` -- phi/psi scatter with the geometric SS classifier's
-    alpha/beta regions shaded for reference
-  - `contact-map` -- heatmap from `prot contact map`'s underlying data
-  - `secondary` -- linear per-chain secondary structure diagram
-    (helix/strand/coil track)
+- `prot cluster`: `ensemble` / `models`, `--method greedy` (dependency-free)
+  or `hierarchical` (needs `[cluster]` extra)
+- `prot plot` (needs `[viz]` extra): `ramachandran`, `contact-map`,
+  `secondary`
+- `prot predict`: structure prediction via external tools only --
+  `colabfold` (wraps `colabfold_batch`) and `alphafold` (wraps
+  `run_alphafold.sh`). No dependency-free fallback exists for ab initio
+  prediction, so this is a thin, honest wrapper: it errors out clearly
+  when the tool isn't installed rather than attempting a fake substitute.
+  `--import-name` imports the top-ranked model into the project on success.
 
-Remaining spec commands (predict/annotate/map/view/replay) are not yet
+Remaining spec commands (annotate/map/view/replay) are not yet
 implemented. `geometry`'s convex hull and residue-residue angle matrix
 were left out as under-specified.
 
@@ -49,9 +49,7 @@ were left out as under-specified.
 uv sync
 uv run prot import structure.pdb --name my_protein
 uv run prot status
-uv run prot plot ramachandran my_protein rama.png
-uv run prot plot contact-map my_protein contacts.png --mode heavy --cutoff 6
-uv run prot plot secondary my_protein ss.png
+uv run prot predict colabfold "MKVLTA..." --output-dir out/ --import-name predicted
 ```
 
 Each project is tracked under a `.proteinexplorer/` directory created

@@ -1086,6 +1086,92 @@ def plot_secondary_cmd(structure_id: str, output: str, method: str) -> None:
     click.echo(f"Saved {path}")
 
 
+@cli.group("predict")
+def predict_group() -> None:
+    """Structure prediction via external tools only (ColabFold/AlphaFold)
+    -- no dependency-free fallback exists for this command."""
+
+
+@predict_group.command("colabfold")
+@click.argument("sequence")
+@click.option("--name", default="query", show_default=True, help="Name for the FASTA entry and output files.")
+@click.option("--output-dir", required=True, type=click.Path(), help="Directory for ColabFold's output.")
+@click.option("--import-name", default=None, help="If set, import the top model into the project under this name.")
+def predict_colabfold_cmd(sequence: str, name: str, output_dir: str, import_name: str | None) -> None:
+    """Predict a structure from a sequence via a local ColabFold
+    installation (`colabfold_batch`)."""
+    from proteinexplorer import predict as pred
+
+    try:
+        result = pred.colabfold_predict(sequence, output_dir, name=name)
+    except pred.PredictionToolNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except pred.PredictionError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not result.models:
+        click.echo(f"ColabFold ran but no output PDB was found under {result.output_dir}")
+        return
+
+    click.echo(f"{len(result.models)} model(s) written to {result.output_dir}:")
+    for m in result.models:
+        click.echo(f"  {m}")
+
+    if import_name:
+        try:
+            root = proj.find_project_root(".")
+        except ProjectError as exc:
+            raise click.ClickException(str(exc)) from exc
+        record = proj.import_structure(root, result.models[0], name=import_name, fmt="pdb")
+        click.echo(f"Imported top model as '{record.name}' ({record.id})")
+
+
+@predict_group.command("alphafold")
+@click.option("--fasta", "fasta_path", required=True, type=click.Path(exists=True))
+@click.option("--output-dir", required=True, type=click.Path())
+@click.option("--alphafold-script", required=True, type=click.Path(), help="Path to run_alphafold.sh.")
+@click.option("--data-dir", required=True, type=click.Path(), help="AlphaFold parameter/sequence database directory.")
+@click.option("--max-template-date", required=True, help="YYYY-MM-DD cutoff for template search.")
+@click.option("--model-preset", default="monomer", show_default=True)
+@click.option("--db-preset", default="full_dbs", show_default=True)
+@click.option("--import-name", default=None, help="If set, import the top model into the project under this name.")
+def predict_alphafold_cmd(
+    fasta_path: str, output_dir: str, alphafold_script: str, data_dir: str,
+    max_template_date: str, model_preset: str, db_preset: str, import_name: str | None,
+) -> None:
+    """Predict a structure via a local AlphaFold installation
+    (`run_alphafold.sh`). Requires the AlphaFold parameter/sequence
+    databases to already be set up locally."""
+    from proteinexplorer import predict as pred
+
+    try:
+        result = pred.alphafold_predict(
+            fasta_path=fasta_path, output_dir=output_dir, alphafold_script=alphafold_script,
+            data_dir=data_dir, max_template_date=max_template_date,
+            model_preset=model_preset, db_preset=db_preset,
+        )
+    except pred.PredictionToolNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except pred.PredictionError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not result.models:
+        click.echo(f"AlphaFold ran but no ranked_*.pdb output was found under {result.output_dir}")
+        return
+
+    click.echo(f"{len(result.models)} model(s) written to {result.output_dir}:")
+    for m in result.models:
+        click.echo(f"  {m}")
+
+    if import_name:
+        try:
+            root = proj.find_project_root(".")
+        except ProjectError as exc:
+            raise click.ClickException(str(exc)) from exc
+        record = proj.import_structure(root, result.models[0], name=import_name, fmt="pdb")
+        click.echo(f"Imported top model as '{record.name}' ({record.id})")
+
+
 def main() -> None:
     cli()
 
