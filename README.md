@@ -32,16 +32,20 @@ Implemented so far:
   or `hierarchical` (needs `[cluster]` extra)
 - `prot plot` (needs `[viz]` extra): `ramachandran`, `contact-map`,
   `secondary`
-- `prot predict`: structure prediction via external tools only --
-  `colabfold` (wraps `colabfold_batch`) and `alphafold` (wraps
-  `run_alphafold.sh`). No dependency-free fallback exists for ab initio
-  prediction, so this is a thin, honest wrapper: it errors out clearly
-  when the tool isn't installed rather than attempting a fake substitute.
-  `--import-name` imports the top-ranked model into the project on success.
+- `prot predict`: `colabfold` / `alphafold`, external tools only
+- `prot annotate`: `metal-sites` / `metadata` (built-in) and `uniprot` /
+  `pfam` (external REST lookups)
+- `prot map`: `pocket` / `mutation` / `domain` / `conservation` coloring
+  scripts for PyMOL/ChimeraX/VMD
+- `prot view`: launch an external 3D viewer (PyMOL/ChimeraX/VMD) on a
+  structure, optionally running a script (e.g. from `prot map`)
+  afterward. Starts the viewer as a background process; no
+  dependency-free substitute exists for this command.
 
-Remaining spec commands (annotate/map/view/replay) are not yet
-implemented. `geometry`'s convex hull and residue-residue angle matrix
-were left out as under-specified.
+Remaining spec command: `replay` (workflow re-execution from
+`.proteinexplorer/log.json`, which every command already writes to) is
+not yet implemented. `geometry`'s convex hull and residue-residue angle
+matrix were left out as under-specified.
 
 ## Quickstart
 
@@ -49,7 +53,8 @@ were left out as under-specified.
 uv sync
 uv run prot import structure.pdb --name my_protein
 uv run prot status
-uv run prot predict colabfold "MKVLTA..." --output-dir out/ --import-name predicted
+uv run prot map mutation my_protein mut.pml --residue A/50
+uv run prot view my_protein --tool pymol --script mut.pml
 ```
 
 Each project is tracked under a `.proteinexplorer/` directory created

@@ -1172,6 +1172,240 @@ def predict_alphafold_cmd(
         click.echo(f"Imported top model as '{record.name}' ({record.id})")
 
 
+@cli.group("annotate")
+def annotate_group() -> None:
+    """Structure annotation: built-in metal-binding site detection and
+    experimental metadata, plus external UniProt/Pfam lookups."""
+
+
+@annotate_group.command("metal-sites")
+@click.argument("structure_id")
+@click.option("--cutoff", default=3.0, show_default=True, help="Ion-to-coordinating-atom distance cutoff (A).")
+def annotate_metal_sites_cmd(structure_id: str, cutoff: float) -> None:
+    """Detect metal ions and their protein-atom coordinating residues
+    (purely geometric, no external database)."""
+    from proteinexplorer import annotate as ann
+
+    _, structure = _contact_load(structure_id)
+    sites = ann.metal_binding_sites(structure, cutoff=cutoff)
+    if not sites:
+        click.echo("No metal-binding sites found.")
+        return
+    for site in sites:
+        pairs = ", ".join(f"{r} ({d:.2f} A)" for r, d in zip(site.coordinating_residues, site.coordinating_distances))
+        click.echo(f"{site.ion_label} ({site.ion_element}): {pairs}")
+
+
+@annotate_group.command("metadata")
+@click.argument("structure_id")
+def annotate_metadata_cmd(structure_id: str) -> None:
+    """Experimental metadata (method, resolution, deposition date) from
+    the structure's own header."""
+    from proteinexplorer import annotate as ann
+
+    _, structure = _contact_load(structure_id)
+    meta = ann.structure_metadata(structure)
+    click.echo(f"method: {meta.method or 'unknown'}")
+    click.echo(f"resolution: {meta.resolution if meta.resolution is not None else 'unknown'}")
+    click.echo(f"deposition date: {meta.deposition_date or 'unknown'}")
+
+
+@annotate_group.command("uniprot")
+@click.argument("accession")
+def annotate_uniprot_cmd(accession: str) -> None:
+    """Gene name, organism, taxonomy, EC numbers, and GO terms for a
+    UniProt accession (external REST lookup)."""
+    from proteinexplorer import annotate as ann
+
+    try:
+        result = ann.uniprot_lookup(accession)
+    except ann.AnnotationFetchError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"{result.accession}")
+    click.echo(f"  gene(s): {', '.join(result.gene_names) or 'unknown'}")
+    click.echo(f"  organism: {result.organism or 'unknown'} (taxon {result.taxonomy_id or 'unknown'})")
+    click.echo(f"  EC number(s): {', '.join(result.ec_numbers) or 'none'}")
+    click.echo(f"  GO terms: {', '.join(result.go_terms) or 'none'}")
+
+
+@annotate_group.command("pfam")
+@click.argument("accession")
+def annotate_pfam_cmd(accession: str) -> None:
+    """Pfam domain hits for a UniProt accession (external REST lookup
+    via InterPro)."""
+    from proteinexplorer import annotate as ann
+
+    try:
+        domains = ann.pfam_domains(accession)
+    except ann.AnnotationFetchError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not domains:
+        click.echo("No Pfam domains found.")
+        return
+    for d in domains:
+        click.echo(f"  {d.accession}: {d.name}")
+
+
+@cli.group("map")
+def map_group() -> None:
+    """Generate coloring/selection scripts for external viewers (PyMOL,
+    ChimeraX, VMD) from pockets, mutation sites, domain ranges, or
+    per-residue values (conservation, etc.)."""
+
+
+@map_group.command("pocket")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--tool", type=click.Choice(["pymol", "chimerax", "vmd"]), default="pymol", show_default=True)
+@click.option("--selection", default=None, help="Restrict the pocket search region.")
+@click.option("--spacing", default=1.5, show_default=True)
+@click.option("--padding", default=3.0, show_default=True)
+@click.option("--min-pocket-points", default=3, show_default=True)
+def map_pocket_cmd(
+    structure_id: str, output: str, tool: str, selection: str | None,
+    spacing: float, padding: float, min_pocket_points: int,
+) -> None:
+    """One color per detected pocket."""
+    from proteinexplorer import map as map_mod
+    from proteinexplorer import pocket as pk
+
+    record, structure = _contact_load(structure_id)
+    atoms = _select_or_fail(structure, selection) if selection else None
+    pockets = pk.find_pockets(
+        structure, atoms=atoms, spacing=spacing, padding=padding, min_pocket_points=min_pocket_points
+    )
+    try:
+        script = map_mod.pocket_map_script(pockets, tool=tool, object_name=record.name)
+    except map_mod.MapError as exc:
+        raise click.ClickException(str(exc)) from exc
+    Path(output).write_text(script)
+    click.echo(f"Saved {output} ({len(pockets)} pocket(s), tool={tool})")
+
+
+@map_group.command("mutation")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--residue", "residues", multiple=True, required=True,
+              help="Residue label chain/resnum (e.g. A/50), repeatable.")
+@click.option("--tool", type=click.Choice(["pymol", "chimerax", "vmd"]), default="pymol", show_default=True)
+@click.option("--color", default="red", show_default=True)
+def map_mutation_cmd(structure_id: str, output: str, residues: tuple[str, ...], tool: str, color: str) -> None:
+    """Highlight a set of residues (e.g. mutation sites) in one color."""
+    from proteinexplorer import map as map_mod
+
+    record, _ = _contact_load(structure_id)
+    try:
+        script = map_mod.mutation_map_script(list(residues), tool=tool, object_name=record.name, color=color)
+    except map_mod.MapError as exc:
+        raise click.ClickException(str(exc)) from exc
+    Path(output).write_text(script)
+    click.echo(f"Saved {output} ({len(residues)} residue(s), tool={tool})")
+
+
+@map_group.command("domain")
+@click.argument("structure_id")
+@click.argument("output", type=click.Path())
+@click.option("--range", "ranges", multiple=True, required=True,
+              help="chain:start-end:label, e.g. A:10-45:PF00062, repeatable.")
+@click.option("--tool", type=click.Choice(["pymol", "chimerax", "vmd"]), default="pymol", show_default=True)
+def map_domain_cmd(structure_id: str, output: str, ranges: tuple[str, ...], tool: str) -> None:
+    """One color per named residue range (e.g. domain boundaries)."""
+    from proteinexplorer import map as map_mod
+
+    record, _ = _contact_load(structure_id)
+    domains = []
+    for spec in ranges:
+        try:
+            chain_part, rest = spec.split(":", 1)
+            span, label = rest.split(":", 1)
+            start_s, end_s = span.split("-", 1)
+            domains.append(map_mod.DomainRange(label=label, chain_id=chain_part, start=int(start_s), end=int(end_s)))
+        except ValueError as exc:
+            raise click.ClickException(
+                f"Invalid --range {spec!r}, expected chain:start-end:label (e.g. A:10-45:PF00062)"
+            ) from exc
+
+    try:
+        script = map_mod.domain_map_script(domains, tool=tool, object_name=record.name)
+    except map_mod.MapError as exc:
+        raise click.ClickException(str(exc)) from exc
+    Path(output).write_text(script)
+    click.echo(f"Saved {output} ({len(domains)} domain(s), tool={tool})")
+
+
+@map_group.command("conservation")
+@click.argument("structure_id")
+@click.argument("values_csv", type=click.Path(exists=True))
+@click.argument("output_script", type=click.Path())
+@click.option("--tool", type=click.Choice(["pymol", "chimerax", "vmd"]), default="pymol", show_default=True)
+@click.option("--structure-name", default=None, help="Name for the B-factor-annotated structure saved to the project.")
+def map_conservation_cmd(
+    structure_id: str, values_csv: str, output_script: str, tool: str, structure_name: str | None
+) -> None:
+    """Write per-residue values (e.g. conservation scores) into a copy of
+    the structure's B-factor column, plus a spectrum/color script.
+    `values_csv` has one "chain/resnum,value" pair per line, e.g. `A/41,0.87`."""
+    from proteinexplorer import map as map_mod
+
+    try:
+        record, structure = _load(structure_id)
+        root = proj.find_project_root(".")
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    values: dict[str, float] = {}
+    for line in Path(values_csv).read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        label, value_s = line.rsplit(",", 1)
+        values[label.strip()] = float(value_s)
+
+    map_mod.write_bfactors(structure, values)
+
+    out_name = structure_name or f"{record.name}_bfactor"
+    ext = ".pdb" if record.format == "pdb" else ".cif"
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / f"{out_name}{ext}"
+    pio.save_structure(structure, tmp_path, fmt=record.format)
+    try:
+        new_record = proj.import_structure(root, tmp_path, name=out_name, fmt=record.format)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+
+    Path(output_script).write_text(map_mod.spectrum_script(tool=tool, object_name=out_name))
+    click.echo(f"Saved B-factor-annotated structure as '{new_record.name}' ({new_record.id})")
+    click.echo(f"Saved {output_script} (tool={tool})")
+
+
+@cli.command("view")
+@click.argument("structure_id")
+@click.option("--tool", type=click.Choice(["pymol", "chimerax", "vmd"]), default="pymol", show_default=True)
+@click.option("--script", "script_path", default=None, type=click.Path(exists=True),
+              help="Script to run in the viewer after loading (e.g. from `prot map`).")
+def view_cmd(structure_id: str, tool: str, script_path: str | None) -> None:
+    """Launch an external 3D viewer (PyMOL/ChimeraX/VMD) on a structure.
+    Starts the viewer as a background process and returns immediately --
+    there is no dependency-free substitute for this command."""
+    from proteinexplorer import view as view_mod
+
+    try:
+        root = proj.find_project_root(".")
+        path = proj.structure_path(root, structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        process = view_mod.launch(tool, path, script_path=script_path)
+    except (view_mod.ViewerNotAvailableError, view_mod.ViewError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"Launched {tool} (pid {process.pid}) on {path}" + (f" with {script_path}" if script_path else ""))
+
+
 def main() -> None:
     cli()
 
