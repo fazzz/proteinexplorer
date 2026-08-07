@@ -7,7 +7,8 @@ ChemExplorer (small molecules) and BioExplorer (sequences).
 
 ## Status
 
-Implemented so far:
+**All spec sections are implemented.** Summary:
+
 - Core data model: PDB/mmCIF I/O, protein/nucleic/water/ion/ligand
   classification, backbone-atom detection (`models.py`, `io.py`)
 - Project management under `.proteinexplorer/` (`project.py`)
@@ -37,30 +38,37 @@ Implemented so far:
   `pfam` (external REST lookups)
 - `prot map`: `pocket` / `mutation` / `domain` / `conservation` coloring
   scripts for PyMOL/ChimeraX/VMD
-- `prot view`: launch an external 3D viewer (PyMOL/ChimeraX/VMD) on a
-  structure, optionally running a script (e.g. from `prot map`)
-  afterward. Starts the viewer as a background process; no
-  dependency-free substitute exists for this command.
+- `prot view`: launch an external 3D viewer on a structure
+- `prot replay`: re-run the commands recorded in
+  `.proteinexplorer/log.json`. Backs up the current project state to
+  `.proteinexplorer_prereplay_<timestamp>`, resets, and replays every
+  logged command in-process (via Click's CliRunner). Since structure IDs
+  are regenerated on every import, any later command whose argv
+  literally referenced an old ID gets that ID automatically rewritten to
+  the newly-generated one (matched by structure name). `--from`/`--to`
+  select a range, `--skip` overrides the default skip list
+  (`view,predict,annotate`), `--continue-on-error` keeps going past a
+  failed step, `--no-reset` replays onto the current state instead of
+  resetting, `--dry-run` shows the plan without running anything.
 
-Remaining spec command: `replay` (workflow re-execution from
-`.proteinexplorer/log.json`, which every command already writes to) is
-not yet implemented. `geometry`'s convex hull and residue-residue angle
-matrix were left out as under-specified.
+`geometry`'s convex hull and residue-residue angle matrix were left out
+of `distance_matrix`/`bounding_box` as under-specified in the original
+spec discussion; happy to add them on request.
 
 ## Quickstart
 
 ```bash
 uv sync
 uv run prot import structure.pdb --name my_protein
-uv run prot status
-uv run prot map mutation my_protein mut.pml --residue A/50
-uv run prot view my_protein --tool pymol --script mut.pml
+uv run prot mutate my_protein --chain A --resid 50 --to VAL
+uv run prot mutate my_protein_A50XXXVAL --chain A --resid 87 --to TRP
+uv run prot replay --dry-run
+uv run prot replay
 ```
 
 Each project is tracked under a `.proteinexplorer/` directory created
 automatically on first `import`, mirroring ChemExplorer's `.chemexplorer/`
-and BioExplorer's `.bioexplorer/` layout. Every CLI invocation is logged to
-`.proteinexplorer/log.json` for a future `prot replay`.
+and BioExplorer's `.bioexplorer/` layout.
 
 ## Tests
 

@@ -17,8 +17,27 @@ from proteinexplorer import io as pio
 from proteinexplorer import project as proj
 from proteinexplorer.project import ProjectError, StructureNotFoundError
 
+# The actual argv a command was invoked with. sys.argv[1:] only reflects
+# the true invocation for the real `prot ...` entry point -- when invoked
+# in-process via Click's CliRunner (as every CLI test, and `prot replay`
+# itself, do), sys.argv still belongs to the outer process. ProtGroup.main
+# below captures the real args Click received either way, so log_command()
+# calls read from here instead of sys.argv directly.
+_current_argv: list[str] = []
 
-@click.group()
+
+def current_argv() -> list[str]:
+    return list(_current_argv)
+
+
+class ProtGroup(click.Group):
+    def main(self, args=None, **kwargs):
+        global _current_argv
+        _current_argv = list(args) if args is not None else list(sys.argv[1:])
+        return super().main(args=args, **kwargs)
+
+
+@click.group(cls=ProtGroup)
 @click.version_option(package_name="proteinexplorer")
 def cli() -> None:
     """prot: CLI-based structural bioinformatics workbench for static
@@ -39,7 +58,7 @@ def import_cmd(path: str, name: str | None, fmt: str | None) -> None:
     """Import a PDB/mmCIF structure file into the current project."""
     try:
         record = proj.import_structure(".", path, name=name, fmt=fmt)
-        proj.log_command(proj.find_project_root("."), sys.argv[1:])
+        proj.log_command(proj.find_project_root("."), current_argv())
     except ProjectError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -668,6 +687,7 @@ def mutate_cmd(structure_id: str, chain_id: str, resid: int, target: str, method
     finally:
         tmp_path.unlink(missing_ok=True)
         tmp_dir.rmdir()
+    proj.log_command(root, current_argv())
 
     click.echo(f"{result.chain_id}/{result.original_resname}{result.resseq} -> {result.new_resname}")
     click.echo(f"  method: {result.method}")
@@ -734,6 +754,7 @@ def model_loop_cmd(
     finally:
         tmp_path.unlink(missing_ok=True)
         tmp_dir.rmdir()
+    proj.log_command(root, current_argv())
 
     click.echo(f"Filled {result.chain_id}/{result.start_resseq}-{result.end_resseq}: {', '.join(result.residues_added)}")
     click.echo(f"  {result.note}")
@@ -1123,6 +1144,7 @@ def predict_colabfold_cmd(sequence: str, name: str, output_dir: str, import_name
         except ProjectError as exc:
             raise click.ClickException(str(exc)) from exc
         record = proj.import_structure(root, result.models[0], name=import_name, fmt="pdb")
+        proj.log_command(root, current_argv())
         click.echo(f"Imported top model as '{record.name}' ({record.id})")
 
 
@@ -1169,6 +1191,7 @@ def predict_alphafold_cmd(
         except ProjectError as exc:
             raise click.ClickException(str(exc)) from exc
         record = proj.import_structure(root, result.models[0], name=import_name, fmt="pdb")
+        proj.log_command(root, current_argv())
         click.echo(f"Imported top model as '{record.name}' ({record.id})")
 
 
@@ -1375,6 +1398,7 @@ def map_conservation_cmd(
     finally:
         tmp_path.unlink(missing_ok=True)
         tmp_dir.rmdir()
+    proj.log_command(root, current_argv())
 
     Path(output_script).write_text(map_mod.spectrum_script(tool=tool, object_name=out_name))
     click.echo(f"Saved B-factor-annotated structure as '{new_record.name}' ({new_record.id})")
@@ -1404,6 +1428,49 @@ def view_cmd(structure_id: str, tool: str, script_path: str | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"Launched {tool} (pid {process.pid}) on {path}" + (f" with {script_path}" if script_path else ""))
+
+
+@cli.command("replay")
+@click.option("--from", "start", default=1, show_default=True, type=int, help="First log entry to replay (1-based).")
+@click.option("--to", "end", default=None, type=int, help="Last log entry to replay (default: the end of the log).")
+@click.option("--skip", "skip_csv", default=None,
+              help="Comma-separated command names to skip (default: view,predict,annotate).")
+@click.option("--continue-on-error", is_flag=True, help="Keep going after a step fails instead of stopping.")
+@click.option("--no-reset", is_flag=True, help="Replay onto the current project state instead of backing it up and resetting first.")
+@click.option("--dry-run", is_flag=True, help="Show what would be replayed without running anything.")
+def replay_cmd(start: int, end: int | None, skip_csv: str | None, continue_on_error: bool, no_reset: bool, dry_run: bool) -> None:
+    """Re-run the commands recorded in .proteinexplorer/log.json.
+
+    By default, backs up the current project to
+    .proteinexplorer_prereplay_<timestamp>, resets it, and replays every
+    logged command from scratch, in-process. Structure IDs are
+    regenerated on each import; any later command's argv that literally
+    referenced an old ID is rewritten to the new one automatically.
+    """
+    from proteinexplorer import replay as replay_mod
+
+    skip = set(skip_csv.split(",")) if skip_csv else None
+    try:
+        result = replay_mod.replay(
+            ".", start=start, end=end, skip=skip, continue_on_error=continue_on_error,
+            reset=not no_reset, dry_run=dry_run,
+        )
+    except (replay_mod.ReplayError, ProjectError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result.backup_dir is not None:
+        click.echo(f"Backed up previous project state to {result.backup_dir}")
+
+    for step in result.steps:
+        if step.skipped:
+            click.echo(f"  [{step.index}] skip: {' '.join(step.argv)}")
+            continue
+        marker = "ok" if step.exit_code in (0, None) else f"FAILED (exit {step.exit_code})"
+        rewritten_note = "" if step.rewritten_argv == step.argv else f"  (rewritten: {' '.join(step.rewritten_argv)})"
+        click.echo(f"  [{step.index}] {marker}: {' '.join(step.argv)}{rewritten_note}")
+
+    if not dry_run:
+        click.echo(f"{len(result.steps)} step(s), {result.n_failed} failed")
 
 
 def main() -> None:
