@@ -13,6 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 cluster = ["scipy>=1.11", "scikit-learn>=1.4"]
 viz = ["matplotlib>=3.8"]
+fix = ["pdbfixer>=1.9", "openmm>=8.0"]
 
 [project.scripts]
 prot = "proteinexplorer.cli:main"

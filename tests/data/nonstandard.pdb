@@ -1,0 +1,16 @@
+HEADER    NONSTANDARD RESIDUE + WATER TEST
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+ATOM      2  CA  ALA A   1       1.460   0.000   0.000  1.00 20.00           C
+ATOM      3  C   ALA A   1       2.000   1.400   0.000  1.00 20.00           C
+ATOM      4  O   ALA A   1       1.300   2.400   0.000  1.00 20.00           O
+ATOM      5  CB  ALA A   1       2.000  -0.800   1.200  1.00 20.00           C
+HETATM    6  N   MSE A   2       3.400   1.400   0.000  1.00 20.00           N
+HETATM    7  CA  MSE A   2       4.000   2.700   0.000  1.00 20.00           C
+HETATM    8  C   MSE A   2       5.500   2.700   0.000  1.00 20.00           C
+HETATM    9  O   MSE A   2       6.200   1.700   0.000  1.00 20.00           O
+HETATM   10  CB  MSE A   2       3.500   3.500   1.200  1.00 20.00           C
+HETATM   11  CG  MSE A   2       3.900   5.000   1.200  1.00 20.00           C
+HETATM   12  SE  MSE A   2       3.300   5.900   2.700  1.00 20.00          SE
+HETATM   13  CE  MSE A   2       4.000   7.600   2.700  1.00 20.00           C
+HETATM   14  O   HOH A 101      10.000  10.000  10.000  1.00 20.00           O
+END

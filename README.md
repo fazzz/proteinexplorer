@@ -47,6 +47,35 @@ after the fact (Foldseek integration).** Summary:
     every other structure already in the project (`--against-project`)
   - `createdb` -- build a persistent Foldseek database from a directory
     of structure files, for repeated searches
+- `prot fix`: structure fixing/cleanup via PDBFixer (`pip install -e
+  ".[fix]"` -- free/open-source and pip-installable, unlike
+  Scwrl4/MODELLER/Foldseek, so this is treated as a normal optional
+  extra rather than an external-tool-only wrapper):
+  - `report` -- shows what PDBFixer would find (missing atoms within
+    existing residues, missing whole residues from SEQRES, nonstandard
+    residues) without changing anything
+  - `apply` -- runs the requested repair steps and saves the result as a
+    new structure in the project. Adds missing atoms within existing
+    residues by default (a real gap `prot mutate`/`prot model` don't
+    cover); replacing nonstandard residues (e.g. MSE -> MET), whole
+    missing-residue insertion, heterogen removal, and hydrogen addition
+    are all available via flags
+
+  **Overlap with `prot model`, resolved on purpose:** PDBFixer's own
+  missing-residue detection only sees gaps recorded in the file's SEQRES
+  header -- a numbering-only gap with no SEQRES is invisible to it
+  (verified directly: it reports nothing for this project's own
+  `gapped.pdb` fixture, while `prot model gaps`, which works from
+  residue numbering alone, correctly finds the 3-residue gap). Use
+  `prot model gaps` for detection; `prot fix apply
+  --add-missing-residues` can fill gaps PDBFixer's own detection *does*
+  find, with more realistic template-based geometry than `prot model
+  loop`'s straight-line placeholder trace.
+
+  One more thing worth knowing: PDBFixer's PDB writer puts water into
+  its own chain on output, so a single-chain input can come back as two
+  chains purely because of solvent -- not a bug in this wrapper, just
+  PDBFixer's own convention.
 - `prot view`: launch an external 3D viewer on a structure
 - `prot replay`: re-run the commands recorded in
   `.proteinexplorer/log.json`. Backs up the current project state to
@@ -94,5 +123,5 @@ structures used for demos that need something 1A8O doesn't have
 ```bash
 uv run pytest -q
 # hierarchical clustering and plotting need extras:
-uv run pip install -e ".[cluster,viz]" && uv run pytest -q
+uv run pip install -e ".[cluster,viz,fix]" && uv run pytest -q
 ```

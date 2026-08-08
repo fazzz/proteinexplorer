@@ -1572,6 +1572,117 @@ def search_createdb_cmd(structure_dir: str, db_path: str) -> None:
     click.echo(f"Database created at {path}")
 
 
+@cli.group("fix")
+def fix_group() -> None:
+    """Structure fixing/cleanup via PDBFixer (`pip install -e ".[fix]"` --
+    free and pip-installable, unlike Scwrl4/MODELLER/Foldseek). See
+    `prot fix apply --help` for how this relates to `prot model gaps`/
+    `prot model loop`."""
+
+
+@fix_group.command("report")
+@click.argument("structure_id")
+def fix_report_cmd(structure_id: str) -> None:
+    """Show what PDBFixer would find (missing atoms/residues, nonstandard
+    residues) without changing anything."""
+    from proteinexplorer import fix as fix_mod
+
+    try:
+        record, _ = _load(structure_id)
+        path = proj.structure_path(proj.find_project_root("."), structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        analysis = fix_mod.analyze(path)
+    except fix_mod.PDBFixerNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"{record.id}  ({record.name})")
+    if analysis.missing_residues:
+        click.echo("  missing residues (from SEQRES):")
+        for label, resnames in analysis.missing_residues.items():
+            click.echo(f"    {label}: {', '.join(resnames)}")
+    else:
+        click.echo("  missing residues: none found (PDBFixer needs SEQRES for this -- "
+                    "try `prot model gaps` too, which works from numbering alone)")
+    if analysis.missing_atoms:
+        click.echo("  incomplete residues (missing atoms):")
+        for label, atoms in analysis.missing_atoms.items():
+            click.echo(f"    {label}: {', '.join(atoms)}")
+    else:
+        click.echo("  incomplete residues: none found")
+    if analysis.nonstandard_residues:
+        click.echo("  nonstandard residues:")
+        for label, new_name in analysis.nonstandard_residues:
+            click.echo(f"    {label} -> {new_name}")
+    else:
+        click.echo("  nonstandard residues: none found")
+
+
+@fix_group.command("apply")
+@click.argument("structure_id")
+@click.option("--add-missing-residues", is_flag=True,
+              help="Also insert whole missing residues PDBFixer's own detection found (needs SEQRES; see `prot fix report`).")
+@click.option("--no-missing-atoms", is_flag=True, help="Skip completing residues that have some atoms missing.")
+@click.option("--no-replace-nonstandard", is_flag=True, help="Skip normalizing nonstandard residues (e.g. MSE -> MET).")
+@click.option("--remove-heterogens", type=click.Choice(["water", "all"]), default=None,
+              help="water: remove ions/ligands but keep water. all: remove everything including water.")
+@click.option("--add-hydrogens", "ph", default=None, type=float,
+              help="Add hydrogens at the given pH (e.g. 7.0). Omit to leave the structure heavy-atom-only.")
+@click.option("--name", default=None, help="Name for the fixed structure (default: derived automatically).")
+def fix_apply_cmd(
+    structure_id: str, add_missing_residues: bool, no_missing_atoms: bool,
+    no_replace_nonstandard: bool, remove_heterogens: str | None, ph: float | None, name: str | None,
+) -> None:
+    """Run PDBFixer and save the result as a new structure in the project
+    (the original is left untouched, same as `prot mutate`/`prot model
+    loop`). Every step defaults to a conservative choice -- see the
+    options above to opt in/out of each one."""
+    from proteinexplorer import fix as fix_mod
+
+    try:
+        record = proj.get_record(proj.find_project_root("."), structure_id)
+        root = proj.find_project_root(".")
+        src_path = proj.structure_path(root, structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    fixed_name = name or f"{record.name}_fixed"
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / f"{fixed_name}.pdb"
+    try:
+        try:
+            report = fix_mod.fix(
+                src_path, tmp_path,
+                add_missing_residues=add_missing_residues,
+                add_missing_atoms=not no_missing_atoms,
+                replace_nonstandard=not no_replace_nonstandard,
+                remove_heterogens=remove_heterogens,
+                add_hydrogens_ph=ph,
+            )
+        except fix_mod.PDBFixerNotAvailableError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        new_record = proj.import_structure(root, tmp_path, name=fixed_name, fmt="pdb")
+        proj.log_command(root, current_argv())
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+
+    if report.residues_added:
+        click.echo(f"  residues added: {sum(len(v) for v in report.residues_added.values())}")
+    if report.atoms_added:
+        click.echo(f"  residues completed (missing atoms added): {len(report.atoms_added)}")
+    if report.nonstandard_replaced:
+        click.echo(f"  nonstandard residues replaced: {len(report.nonstandard_replaced)}")
+    if report.heterogens_removed:
+        click.echo("  heterogens removed")
+    if report.hydrogens_added_at_ph is not None:
+        click.echo(f"  hydrogens added at pH {report.hydrogens_added_at_ph}")
+    click.echo(f"Saved as '{new_record.name}' ({new_record.id})")
+
+
 def main() -> None:
     cli()
 
