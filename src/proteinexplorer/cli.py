@@ -1465,7 +1465,10 @@ def replay_cmd(start: int, end: int | None, skip_csv: str | None, continue_on_er
         if step.skipped:
             click.echo(f"  [{step.index}] skip: {' '.join(step.argv)}")
             continue
-        marker = "ok" if step.exit_code in (0, None) else f"FAILED (exit {step.exit_code})"
+        if dry_run:
+            marker = "plan"
+        else:
+            marker = "ok" if step.exit_code in (0, None) else f"FAILED (exit {step.exit_code})"
         rewritten_note = "" if step.rewritten_argv == step.argv else f"  (rewritten: {' '.join(step.rewritten_argv)})"
         click.echo(f"  [{step.index}] {marker}: {' '.join(step.argv)}{rewritten_note}")
 

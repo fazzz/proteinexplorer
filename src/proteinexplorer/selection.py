@@ -338,6 +338,19 @@ class _EvalContext:
         self._category_cache: dict[int, ResidueCategory] = {}
         atoms = list(model.get_atoms())
         self.neighbor_search = NeighborSearch(atoms)
+        # Canonical (chain_id, resseq, icode) order, NOT raw file/parse
+        # order. Bio.PDB's writer groups all HETATM records after ATOM
+        # records regardless of their original position, so after a
+        # structure has been saved and reloaded (e.g. by `prot mutate`),
+        # a residue like MSE (selenomethionine, hetero-flagged) can end
+        # up relocated to the end of the atom list even though its
+        # residue number sits in the middle of the sequence. Selections
+        # from two independently-parsed structures must still line up
+        # atom-for-atom (geometry.rmsd, cluster's pairwise_rmsd_matrix,
+        # ...), so we sort canonically here rather than trusting parse
+        # order. Sort is stable, so atom order within one residue is
+        # preserved.
+        atoms.sort(key=lambda a: (a.get_parent().get_parent().id, a.get_parent().id[1], a.get_parent().id[2]))
         self._all_atoms = atoms
 
     def category_of(self, atom) -> ResidueCategory:
@@ -355,8 +368,11 @@ class _EvalContext:
 
 def select(structure: Structure, expr: str) -> list:
     """Parse and evaluate a selection expression against a structure's
-    first model. Returns a list of Bio.PDB Atom objects, in structure
-    (chain/residue/atom serial) order."""
+    first model. Returns a list of Bio.PDB Atom objects in canonical
+    (chain_id, residue seqnum, insertion code) order -- this is NOT
+    necessarily the raw file/parse order (see _EvalContext for why:
+    Bio.PDB's writer relocates HETATM-flagged residues, so file order
+    isn't stable across a save/reload round-trip)."""
     node = parse_selection(expr)
     ctx = _EvalContext(structure)
     matched = ctx.eval_node(node)

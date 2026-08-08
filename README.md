@@ -70,6 +70,16 @@ Each project is tracked under a `.proteinexplorer/` directory created
 automatically on first `import`, mirroring ChemExplorer's `.chemexplorer/`
 and BioExplorer's `.bioexplorer/` layout.
 
+## Tutorial
+
+See [`docs/TUTORIAL.md`](docs/TUTORIAL.md) for a full walkthrough of
+every command using real data (1A8O, the HIV-1 capsid C-terminal
+domain), including the actual output of each command and three
+generated plots. `examples/1a8o/` has the real structure file and
+generated outputs; `examples/illustrative/` has small synthetic
+structures used for demos that need something 1A8O doesn't have
+(a bound metal ion, an enclosed cavity).
+
 ## Tests
 
 ```bash

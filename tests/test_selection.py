@@ -115,6 +115,51 @@ def test_select_unbalanced_parens_raises(tiny_pdb: Path):
         sel.select(structure, "(protein")
 
 
+def test_select_returns_canonical_order_regardless_of_file_order():
+    # Reproduces a real bug: Bio.PDB's writer groups HETATM records after
+    # ATOM records, so a hetero-flagged residue like MSE (selenomethionine,
+    # classified as PROTEIN) can sit in a different relative position in
+    # the parsed atom list after a save/reload round-trip even though its
+    # residue number is unchanged. Two independently-parsed structures
+    # covering the same residues must still select() in the same
+    # (chain, resid) order for things like geometry.rmsd/cluster's
+    # pairwise_rmsd_matrix (which pair atoms positionally) to stay correct.
+    from Bio.PDB.Atom import Atom
+    from Bio.PDB.Chain import Chain
+    from Bio.PDB.Model import Model
+    from Bio.PDB.Residue import Residue
+    from Bio.PDB.Structure import Structure
+
+    def build(order):
+        structure = Structure("t")
+        model = Model(0)
+        chain = Chain("A")
+        residues = {
+            1: ("ALA", " "),
+            2: ("MSE", "H_MSE"),
+            3: ("GLY", " "),
+        }
+        for resseq in order:
+            resname, hetflag = residues[resseq]
+            residue = Residue((hetflag, resseq, " "), resname, "")
+            residue.add(Atom("CA", (float(resseq), 0.0, 0.0), 20.0, 1.0, " ", "CA", resseq, element="C"))
+            chain.add(residue)
+        model.add(chain)
+        structure.add(model)
+        return structure
+
+    # "pre-round-trip" order (sequence order) vs "post-round-trip" order
+    # (HETATM/MSE relocated to the end, as Bio.PDB's PDBIO would write it)
+    structure_a = build([1, 2, 3])
+    structure_b = build([1, 3, 2])
+
+    atoms_a = sel.select(structure_a, "protein and atom CA")
+    atoms_b = sel.select(structure_b, "protein and atom CA")
+    labels_a = [a.get_parent().id[1] for a in atoms_a]
+    labels_b = [a.get_parent().id[1] for a in atoms_b]
+    assert labels_a == labels_b == [1, 2, 3]
+
+
 def test_select_empty_raises(tiny_pdb: Path):
     structure = pio.load_structure(tiny_pdb, "t")
     with pytest.raises(SelectionSyntaxError):

@@ -1,0 +1,16 @@
+HEADER    CAGE STRUCTURE (encloses the origin along the 7 LIGSITE axes)
+ATOM      1  CA  LEU A   1       4.000   0.000   0.000  1.00 20.00           C
+ATOM      2  CA  LEU A   2      -4.000  -0.000  -0.000  1.00 20.00           C
+ATOM      3  CA  LEU A   3       0.000   4.000   0.000  1.00 20.00           C
+ATOM      4  CA  LEU A   4      -0.000  -4.000  -0.000  1.00 20.00           C
+ATOM      5  CA  LEU A   5       0.000   0.000   4.000  1.00 20.00           C
+ATOM      6  CA  LEU A   6      -0.000  -0.000  -4.000  1.00 20.00           C
+ATOM      7  CA  LEU A   7       2.828   2.828   0.000  1.00 20.00           C
+ATOM      8  CA  LEU A   8      -2.828  -2.828  -0.000  1.00 20.00           C
+ATOM      9  CA  LEU A   9       2.828   0.000   2.828  1.00 20.00           C
+ATOM     10  CA  LEU A  10      -2.828  -0.000  -2.828  1.00 20.00           C
+ATOM     11  CA  LEU A  11       0.000   2.828   2.828  1.00 20.00           C
+ATOM     12  CA  LEU A  12      -0.000  -2.828  -2.828  1.00 20.00           C
+ATOM     13  CA  LEU A  13       2.309   2.309   2.309  1.00 20.00           C
+ATOM     14  CA  LEU A  14      -2.309  -2.309  -2.309  1.00 20.00           C
+END
