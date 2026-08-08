@@ -7,7 +7,8 @@ ChemExplorer (small molecules) and BioExplorer (sequences).
 
 ## Status
 
-**All spec sections are implemented.** Summary:
+**All spec sections are implemented, plus a `search` command added
+after the fact (Foldseek integration).** Summary:
 
 - Core data model: PDB/mmCIF I/O, protein/nucleic/water/ion/ligand
   classification, backbone-atom detection (`models.py`, `io.py`)
@@ -38,6 +39,14 @@ ChemExplorer (small molecules) and BioExplorer (sequences).
   `pfam` (external REST lookups)
 - `prot map`: `pocket` / `mutation` / `domain` / `conservation` coloring
   scripts for PyMOL/ChimeraX/VMD
+- `prot search`: structural similarity search via Foldseek
+  (external-tool-only, not on PyPI -- no dependency-free fallback exists
+  for large-scale structural database search):
+  - `foldseek` -- search one structure against a Foldseek database
+    (`--target-db`), a directory of structure files (`--target-dir`), or
+    every other structure already in the project (`--against-project`)
+  - `createdb` -- build a persistent Foldseek database from a directory
+    of structure files, for repeated searches
 - `prot view`: launch an external 3D viewer on a structure
 - `prot replay`: re-run the commands recorded in
   `.proteinexplorer/log.json`. Backs up the current project state to

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import shutil
 from pathlib import Path
 
 import click
@@ -1474,6 +1475,101 @@ def replay_cmd(start: int, end: int | None, skip_csv: str | None, continue_on_er
 
     if not dry_run:
         click.echo(f"{len(result.steps)} step(s), {result.n_failed} failed")
+
+
+@cli.group("search")
+def search_group() -> None:
+    """Structural similarity search via Foldseek. External-tool-only --
+    there is no dependency-free fallback for large-scale structural
+    database search."""
+
+
+@search_group.command("foldseek")
+@click.argument("structure_id")
+@click.option("--target-db", default=None, help="A pre-built Foldseek database path.")
+@click.option("--target-dir", default=None, type=click.Path(exists=True),
+              help="A directory of structure files to search against (Foldseek builds a temporary index).")
+@click.option("--against-project", is_flag=True,
+              help="Search against every other structure currently in this project.")
+@click.option("--sensitivity", default=None, type=float, help="Foldseek -s sensitivity (higher = slower, more sensitive).")
+@click.option("--max-seqs", default=None, type=int, help="Max results per query.")
+def search_foldseek_cmd(
+    structure_id: str, target_db: str | None, target_dir: str | None,
+    against_project: bool, sensitivity: float | None, max_seqs: int | None,
+) -> None:
+    """Search one structure against a Foldseek database, a directory of
+    structures, or every other structure already in this project."""
+    from proteinexplorer import search as search_mod
+
+    n_targets = sum(x is not None for x in (target_db, target_dir)) + (1 if against_project else 0)
+    if n_targets != 1:
+        raise click.ClickException("Provide exactly one of --target-db, --target-dir, --against-project")
+
+    try:
+        root = proj.find_project_root(".")
+        query_path = proj.structure_path(root, structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    tmp_dir = None
+    try:
+        if against_project:
+            query_record = proj.get_record(root, structure_id)
+            tmp_dir = Path(tempfile.mkdtemp())
+            n_copied = 0
+            for record in proj.list_records(root):
+                if record.id == query_record.id:
+                    continue
+                src = proj.structure_path(root, record.id)
+                ext = ".pdb" if record.format == "pdb" else ".cif"
+                shutil.copyfile(src, tmp_dir / f"{record.name}{ext}")
+                n_copied += 1
+            if n_copied == 0:
+                raise click.ClickException("No other structures in this project to search against")
+            target = tmp_dir
+        else:
+            target = target_db or target_dir
+
+        try:
+            hits = search_mod.easy_search(
+                query_path, target, sensitivity=sensitivity, max_seqs=max_seqs,
+            )
+        except search_mod.FoldseekNotAvailableError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except search_mod.SearchError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if not hits:
+        click.echo("No hits found.")
+        return
+    click.echo(f"{len(hits)} hit(s):")
+    for h in hits:
+        extras = []
+        if h.alntmscore is not None:
+            extras.append(f"TM-score={h.alntmscore:.3f}")
+        if h.evalue is not None:
+            extras.append(f"e-value={h.evalue:.2e}")
+        click.echo(f"  {h.target}" + (f"  ({', '.join(extras)})" if extras else ""))
+
+
+@search_group.command("createdb")
+@click.argument("structure_dir", type=click.Path(exists=True))
+@click.argument("db_path", type=click.Path())
+def search_createdb_cmd(structure_dir: str, db_path: str) -> None:
+    """Build a persistent Foldseek database from a directory of structure
+    files, for repeated searches against the same target set."""
+    from proteinexplorer import search as search_mod
+
+    try:
+        path = search_mod.createdb(structure_dir, db_path)
+    except search_mod.FoldseekNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except search_mod.SearchError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Database created at {path}")
 
 
 def main() -> None:
