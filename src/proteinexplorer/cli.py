@@ -1755,6 +1755,79 @@ def valid_molprobity_cmd(structure_id: str) -> None:
     click.echo(result.raw_output)
 
 
+@cli.group("assembly")
+def assembly_group() -> None:
+    """Biological assembly generation via gemmi (`pip install -e
+    ".[assembly]"` -- free/open-source, pip-installable). Bio.PDB (the
+    backend behind every other command) only ever gives you the
+    asymmetric unit as deposited; this fills that gap."""
+
+
+@assembly_group.command("list")
+@click.argument("structure_id")
+def assembly_list_cmd(structure_id: str) -> None:
+    """List the biological assemblies documented in a structure's source
+    file (PDB REMARK 350 / mmCIF _pdbx_struct_assembly), without
+    generating any of them."""
+    from proteinexplorer import assembly as asm_mod
+
+    try:
+        path = proj.structure_path(proj.find_project_root("."), structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        infos = asm_mod.list_assemblies(path)
+    except asm_mod.GemmiNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not infos:
+        click.echo("No biological assembly documented in this file.")
+        return
+    for info in infos:
+        details = info.oligomeric_details or "unspecified"
+        click.echo(f"  #{info.name}  {details}  chains={','.join(info.chains_involved)}  operators={info.n_operators}")
+
+
+@assembly_group.command("generate")
+@click.argument("structure_id")
+@click.option("--assembly-name", default=None, help="Which documented assembly to expand (default: the first one).")
+@click.option("--how", type=click.Choice(["number", "short", "duplicate"]), default="number", show_default=True,
+              help="How to name copied chains. 'duplicate' can produce colliding chain IDs.")
+@click.option("--name", default=None, help="Name for the expanded structure (default: derived automatically).")
+def assembly_generate_cmd(structure_id: str, assembly_name: str | None, how: str, name: str | None) -> None:
+    """Expand a documented biological assembly and save it as a new
+    structure in the project (the original is left untouched)."""
+    from proteinexplorer import assembly as asm_mod
+
+    try:
+        record = proj.get_record(proj.find_project_root("."), structure_id)
+        root = proj.find_project_root(".")
+        src_path = proj.structure_path(root, structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    out_name = name or f"{record.name}_assembly"
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / f"{out_name}.pdb"
+    try:
+        try:
+            result = asm_mod.generate_assembly(src_path, tmp_path, assembly_name=assembly_name, how=how)
+        except asm_mod.GemmiNotAvailableError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        new_record = proj.import_structure(root, tmp_path, name=out_name, fmt="pdb")
+        proj.log_command(root, current_argv())
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+
+    click.echo(f"Assembly '{result.assembly_name}': {result.chains_before} -> {result.chains_after}")
+    click.echo(f"Saved as '{new_record.name}' ({new_record.id})")
+
+
 def main() -> None:
     cli()
 

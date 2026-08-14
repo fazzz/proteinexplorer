@@ -397,6 +397,48 @@ structure IDはimportのたびに新しく生成されるので、後続コマ�
 argvに旧IDがリテラルで含まれていても、name照合で自動的に新IDへ
 書き換えられます。ログを手で編集する必要はありません。
 
+## 20. assembly(gemmi併用によるbiological assembly生成)
+
+ここまでの全コマンドはBio.PDBというライブラリを土台にしていますが、
+Bio.PDBには「結晶構造ファイルに書かれた対称操作(PDBのREMARK 350や
+mmCIFの`_pdbx_struct_assembly_gen`)を展開して、実際の生物学的な複合体
+(biological assembly)を組み立てる」機能がありません。非対称単位
+(asymmetric unit、ファイルに実際に座標が書かれている範囲)しか扱えない
+のです。これはプロジェクト最初期の仕様レビューで指摘したまま積み残し
+になっていた課題で、gemmi(`pip install -e ".[assembly]"`、無料でpip
+配布)を併用することで解決しました。
+
+役割は徹底的に絞ってあります。gemmiは「assemblyを展開して書き出す」
+という、この一点だけに使い、書き出した結果は普通のPDB/mmCIFファイル
+として、これまで通りBio.PDBベースの`prot`の全コマンドでそのまま扱え
+ます。
+
+```console
+$ prot assembly list 1a8o
+  #1  DIMERIC  chains=A  operators=2
+```
+
+1A8Oのファイルには実は「これは二量体である」という情報が
+(`DIMERIC`として)明記されています。展開してみます:
+
+```console
+$ prot assembly generate 1a8o
+Assembly '1': ['A'] -> ['A1', 'A2']
+Saved as '1a8o_assembly' (p_1ab81249)
+
+$ prot info 1a8o_assembly
+p_1ab81249  (1a8o_assembly)
+  models: 1   chains: 2
+  residues: 316   atoms: 1288
+    protein: 140
+    water: 176
+```
+
+非対称単位(chain A、644原子)から、対称操作を適用した実際の二量体
+(chain A1+A2、1288原子)が正しく生成されました。生成された構造は
+新しいstructureとしてプロジェクトに保存され、他の全コマンド
+(`geometry`/`contact`/`compare`など)でそのまま使えます。
+
 ---
 
 ## まとめ: 三層構成の一覧
@@ -407,7 +449,7 @@ argvに旧IDがリテラルで含まれていても、name照合で自動的に�
 | パターン | 該当コマンド |
 |---|---|
 | **外部ツール優先+依存なしフォールバック** | `secondary`(DSSP/geometric)、`mutate`(Scwrl4/cb_only) |
-| **常時利用可能なoptional extra(ライセンスフリー)** | `fix`(PDBFixer)、`cluster --method hierarchical`(scipy)、`plot`(matplotlib) |
+| **常時利用可能なoptional extra(ライセンスフリー)** | `fix`(PDBFixer)、`assembly`(gemmi)、`cluster --method hierarchical`(scipy)、`plot`(matplotlib) |
 | **外部ツールのみ・フォールバックなし** | `search`(Foldseek)、`predict`(ColabFold/AlphaFold)、`model homology`(MODELLER)、`view`(PyMOL/ChimeraX/VMD)、`valid molprobity`(MolProbity) |
 | **依存なしの誠実な近似(検証可能な事実のみ)** | `pocket`(LIGSITE風グリッド探索)、`valid clashes`/`geometry`(vdW重なり・理想結合幾何) |
 

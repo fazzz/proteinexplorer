@@ -97,6 +97,23 @@ after the fact (Foldseek integration).** Summary:
     parsing is deliberately shallow (raw report text always returned,
     plus a best-effort summary extraction) since the report format
     varies by install/version.
+- `prot assembly`: biological assembly generation via gemmi
+  (`pip install -e ".[assembly]"` -- free/open-source, pip-installable).
+  Bio.PDB, the backend behind every other command in this package, only
+  ever gives you the asymmetric unit exactly as deposited -- it has no
+  way to expand a documented symmetry operation (PDB REMARK 350 / mmCIF
+  `_pdbx_struct_assembly_gen`) into the real biological unit (e.g. a
+  crystallographic monomer that's actually a dimer in solution). This
+  was a known gap flagged when the spec was first drafted, closed now:
+  - `list` -- show the assemblies documented in a structure's file
+  - `generate` -- expand one and save it as a new structure in the
+    project, using gemmi only for the expansion step; the result is a
+    normal PDB/mmCIF file every other (Bio.PDB-based) command reads
+    like any other structure, no special-casing needed. Verified
+    against 1A8O, whose file documents a real dimer (`DIMERIC`,
+    confirmed via gemmi's own metadata): `generate` correctly turns the
+    644-atom, 1-chain asymmetric unit into a 1288-atom, 2-chain (`A1`,
+    `A2`) assembly.
 - `prot view`: launch an external 3D viewer on a structure
 - `prot replay`: re-run the commands recorded in
   `.proteinexplorer/log.json`. Backs up the current project state to
@@ -145,5 +162,5 @@ doesn't have (a bound metal ion, an enclosed cavity).
 ```bash
 uv run pytest -q
 # hierarchical clustering and plotting need extras:
-uv run pip install -e ".[cluster,viz,fix]" && uv run pytest -q
+uv run pip install -e ".[cluster,viz,fix,assembly]" && uv run pytest -q
 ```
