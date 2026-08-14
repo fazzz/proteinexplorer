@@ -76,6 +76,27 @@ after the fact (Foldseek integration).** Summary:
   its own chain on output, so a single-chain input can come back as two
   chains purely because of solvent -- not a bug in this wrapper, just
   PDBFixer's own convention.
+- `prot valid`: structure validation --
+  - `clashes` -- steric (van der Waals) overlaps between non-bonded
+    atoms, reusing `pocket.py`'s VDW_RADII table. Dependency-free and
+    genuinely checkable geometry (not a statistical judgment call).
+    Excludes same-residue, sequence-adjacent-residue, and disulfide-
+    bonded atom pairs (all legitimately close, not clashing). Verified
+    clash-free on 1A8O (a well-refined 1.7 A structure) and correctly
+    flags a deliberately-forced atomic overlap
+  - `geometry` -- backbone bond length/angle outliers vs. standard
+    idealized covalent values (textbook bond chemistry, not empirical
+    statistics -- also dependency-free)
+  - `molprobity` -- wraps an external MolProbity installation (Phenix or
+    standalone) for the real thing: calibrated Ramachandran/rotamer
+    outlier classification, clashscore, CaBLAM. **No dependency-free
+    fallback exists for this specific analysis** -- reproducing
+    MolProbity's statistically-calibrated reference distributions from
+    memory would risk quietly fabricating thresholds and presenting them
+    as validated science, so this module doesn't attempt it. Output
+    parsing is deliberately shallow (raw report text always returned,
+    plus a best-effort summary extraction) since the report format
+    varies by install/version.
 - `prot view`: launch an external 3D viewer on a structure
 - `prot replay`: re-run the commands recorded in
   `.proteinexplorer/log.json`. Backs up the current project state to
@@ -110,13 +131,14 @@ and BioExplorer's `.bioexplorer/` layout.
 
 ## Tutorial
 
-See [`docs/TUTORIAL.md`](docs/TUTORIAL.md) for a full walkthrough of
-every command using real data (1A8O, the HIV-1 capsid C-terminal
-domain), including the actual output of each command and three
-generated plots. `examples/1a8o/` has the real structure file and
-generated outputs; `examples/illustrative/` has small synthetic
-structures used for demos that need something 1A8O doesn't have
-(a bound metal ion, an enclosed cavity).
+See [`docs/TUTORIAL.md`](docs/TUTORIAL.md) (English) or
+[`docs/TUTORIAL.ja.md`](docs/TUTORIAL.ja.md) (Japanese) for a full
+walkthrough of every command -- including `search`/`fix`/`valid` -- using
+real data (1A8O, the HIV-1 capsid C-terminal domain), including the
+actual output of each command and three generated plots. `examples/1a8o/`
+has the real structure file and generated outputs; `examples/illustrative/`
+has small synthetic structures used for demos that need something 1A8O
+doesn't have (a bound metal ion, an enclosed cavity).
 
 ## Tests
 

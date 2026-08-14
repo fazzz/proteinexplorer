@@ -6,6 +6,11 @@ residues + 88 waters + one selenomethionine). All output below is copied
 verbatim from actually running these commands — nothing here is
 hand-written sample output.
 
+> `search`, `fix`, and `valid` were added after this tutorial was
+> written and aren't covered below yet. See
+> [`docs/TUTORIAL.ja.md`](TUTORIAL.ja.md) (Japanese) for a tutorial that
+> covers every command, including those three.
+
 ## Getting the data
 
 ```bash

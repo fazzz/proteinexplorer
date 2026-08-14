@@ -1683,6 +1683,78 @@ def fix_apply_cmd(
     click.echo(f"Saved as '{new_record.name}' ({new_record.id})")
 
 
+@cli.group("valid")
+def valid_group() -> None:
+    """Structure validation: dependency-free steric clash and bond
+    geometry checks, plus an external MolProbity wrapper for the real
+    calibrated Ramachandran/rotamer/clashscore analysis (no dependency-
+    free substitute exists for that -- see `prot valid molprobity --help`)."""
+
+
+@valid_group.command("clashes")
+@click.argument("structure_id")
+@click.option("--selection", default=None, help="Restrict to a selection (default: everything but water).")
+@click.option("--tolerance", default=0.4, show_default=True, help="Allowed vdW overlap tolerance (A).")
+def valid_clashes_cmd(structure_id: str, selection: str | None, tolerance: float) -> None:
+    """Steric (van der Waals) clashes between non-bonded atoms."""
+    from proteinexplorer import valid as valid_mod
+
+    _, structure = _contact_load(structure_id)
+    atoms = _select_or_fail(structure, selection) if selection else None
+    result = valid_mod.clashes(structure, atoms=atoms, tolerance=tolerance)
+    if not result:
+        click.echo("No clashes found.")
+        return
+    click.echo(f"{len(result)} clash(es):")
+    for c in result:
+        click.echo(f"  {c.atom_a}  --  {c.atom_b}   dist={c.distance:.2f} A   overlap={c.overlap:.2f} A")
+
+
+@valid_group.command("geometry")
+@click.argument("structure_id")
+def valid_geometry_cmd(structure_id: str) -> None:
+    """Backbone bond length/angle outliers vs. standard idealized
+    covalent geometry."""
+    from proteinexplorer import valid as valid_mod
+
+    _, structure = _contact_load(structure_id)
+    result = valid_mod.bond_geometry(structure)
+    if not result:
+        click.echo("No bond geometry outliers found.")
+        return
+    click.echo(f"{len(result)} outlier(s):")
+    for o in result:
+        click.echo(f"  {o.residue}  {o.kind}: {o.value:.2f} (ideal {o.ideal:.2f}, deviation {o.deviation:+.2f})")
+
+
+@valid_group.command("molprobity")
+@click.argument("structure_id")
+def valid_molprobity_cmd(structure_id: str) -> None:
+    """Run an external MolProbity installation for the full calibrated
+    validation report (Ramachandran/rotamer outliers, clashscore,
+    CaBLAM, ...). No dependency-free substitute exists for this --
+    see `prot valid clashes`/`prot valid geometry` for what's available
+    without it."""
+    from proteinexplorer import valid as valid_mod
+
+    try:
+        path = proj.structure_path(proj.find_project_root("."), structure_id)
+    except ProjectError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        result = valid_mod.molprobity(path)
+    except valid_mod.MolProbityNotAvailableError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result.summary:
+        click.echo("Summary (best-effort extraction):")
+        for key, value in result.summary.items():
+            click.echo(f"  {key}: {value}")
+    click.echo("--- full report ---")
+    click.echo(result.raw_output)
+
+
 def main() -> None:
     cli()
 
